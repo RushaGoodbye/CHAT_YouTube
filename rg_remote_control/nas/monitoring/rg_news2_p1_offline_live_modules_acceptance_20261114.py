@@ -160,7 +160,7 @@ with tempfile.TemporaryDirectory(prefix='news2_p1_no_telegram_') as td:
  checks.append('UNCERTAIN_PUBLIC_SEND_GLOBAL_PAUSE')
  # 9: native wrapper footer offset after emoji correctly encoded UTF-16.
  post,entities=footer.append_footer('💥 Новина')
- assert entities[1]['offset']==len('💥 Новина\n\n'.encode('utf16-le'))//2
+ assert entities[1]['offset']==len('💥 Новина\n\n'.encode('utf-16-le'))//2
  checks.append('UTF16_BOLD_TEXT_LINK_FOOTER')
 print(json.dumps({'status':'NEWS2_P1_LIVE_MODULES_ISOLATED_ACCEPTANCE_PASS',
  'tests':checks,'tests_passed':len(checks),
