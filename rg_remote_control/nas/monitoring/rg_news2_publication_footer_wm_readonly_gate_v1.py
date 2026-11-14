@@ -69,6 +69,33 @@ def analyze_content(src):
         'has_telegram_calls': 'sendPhoto' in src or 'sendVideo' in src,
     }
 
+def watermark_candidates():
+    # Small allowlisted directories only; never return image contents.
+    dirs=[ROOT,ROOT/'assets',ROOT/'branding',ROOT/'watermark',
+          ROOT/'watermarks',ROOT.parent/'assets']
+    files=[]
+    for folder in dirs:
+        if folder.is_symlink() or not folder.is_dir():continue
+        try:items=list(folder.glob('*.png'))[:50]
+        except OSError:continue
+        for p in items:
+            try:
+                if p.is_symlink() or not p.is_file() or p.stat().st_size>15000000:continue
+                with p.open('rb') as file:
+                    header=file.read(24)
+                    if header[:8]!=b'\x89PNG\r\n\x1a\n':continue
+                    width=int.from_bytes(header[16:20],'big')
+                    height=int.from_bytes(header[20:24],'big')
+                    if not 1<=width<=8192 or not 1<=height<=8192:continue
+                    file.seek(0)
+                    sha=hashlib.sha256()
+                    for block in iter(lambda:file.read(1048576),b''):sha.update(block)
+                files.append({'relative_dir':str(folder.relative_to(ROOT.parent)),
+                              'filename':p.name[:90],'sha256':sha.hexdigest(),
+                              'width':width,'height':height})
+            except (OSError,ValueError):continue
+    return files[:20]
+
 def inspect():
     if os.geteuid()!=0:raise Block('ROOT_REQUIRED')
     if ROOT.is_symlink() or not ROOT.is_dir():raise Block('OPERATOR_UNSAFE')
@@ -138,6 +165,7 @@ def inspect():
        'schema':'RG_NEWS2_PUBLICATION_FOOTER_WM_READONLY_GATE_V1',
        'modules':modules,'requirements':requirements,'blockers':issues,
        'counts':counters,
+       'watermark_png_candidates':watermark_candidates(),
        'passed_static_requirements':sum(requirements.values()),
        'total_static_requirements':len(requirements),
        'ready_to_install':False,  # explicit human-reviewed watermark is required
