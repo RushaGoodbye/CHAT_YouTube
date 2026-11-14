@@ -11,9 +11,11 @@ with tempfile.TemporaryDirectory(prefix='news2_rg3_actions_') as tmp:
  fake.BASE=Path(tmp)
  fake.now=lambda:datetime.datetime.now(datetime.timezone.utc).isoformat()
  fake.audit=lambda *args,**kw:None
+ connections=[]
  def connect():
   db=sqlite3.connect(dbpath)
   db.row_factory=sqlite3.Row
+  connections.append(db)
   db.execute('CREATE TABLE IF NOT EXISTS candidates (id TEXT PRIMARY KEY,status TEXT NOT NULL,photo_reviewed INTEGER,updated_at TEXT,created_at TEXT)')
   return db
  fake.connect=connect
@@ -55,6 +57,7 @@ with tempfile.TemporaryDirectory(prefix='news2_rg3_actions_') as tmp:
  with m.db_connect() as db:
   assert db.execute('SELECT status FROM candidates WHERE id=?',(key,)).fetchone()['status']=='awaiting_moderation'
  assert actions and all(method=='deleteMessage' and x.get('chat_id')==12345 for method,x in actions)
+ for db in connections:db.close()
  print(json.dumps({'status':'NEWS2_RG3_BUTTONS_REAL_CODE_SQLITE_ISOLATED_PASS',
    'actions':statuses,'legacy_approve_paused':True,
    'network_calls':0,'nas_writes':0,'publications':0},ensure_ascii=False))
