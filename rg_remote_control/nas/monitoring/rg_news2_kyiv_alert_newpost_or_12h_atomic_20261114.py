@@ -108,6 +108,38 @@ def patched(a,b):
  py=replace_exact(py,OLD_PARSE,NEW_PARSE,'parse_media_only')
  py=replace_exact(py,OLD_SCAN,NEW_SCAN,'newer_post_retention')
  py=replace_exact(py,
+  " print('NEWS_RG_ALERT_24H_CLEANUP_SELFTEST_PASS')",
+  """ # Test NEWER non-alert + media-only post, 12h timeout and no false positives.
+ global page
+ saved_page=page
+ try:
+  clock=1794661800
+  page=lambda before=None: ([
+      {'id':101,'timestamp':clock-3600,'kind':'start','text_chars':100},
+      {'id':102,'timestamp':clock-1200,'kind':None,'text_chars':0}
+     ] if before is None else [])
+  sample_new=scan(clock)
+  assert len(sample_new['eligible'])==1 and sample_new['eligible'][0]['id']==101
+  assert sample_new['eligible'][0]['trigger']=='newer_channel_post'
+  page=lambda before=None: ([
+      {'id':105,'timestamp':clock-12*3600-5,'kind':'clear','text_chars':100}
+     ] if before is None else [])
+  sample_12h=scan(clock)
+  assert len(sample_12h['eligible'])==1 and sample_12h['eligible'][0]['trigger']=='12h_timeout'
+  page=lambda before=None: ([
+      {'id':110,'timestamp':clock-100,'kind':'start','text_chars':100}
+     ] if before is None else [])
+  assert scan(clock)['eligible']==[]
+  page=lambda before=None: ([
+      {'id':115,'timestamp':clock-80000,'kind':None,'text_chars':100},
+      {'id':116,'timestamp':clock-100,'kind':None,'text_chars':0}
+     ] if before is None else [])
+  assert scan(clock)['eligible']==[]
+ finally:
+  page=saved_page
+ print('NEWS_RG_ALERT_24H_CLEANUP_SELFTEST_PASS')""",
+  'new_retention_selftest')
+ py=replace_exact(py,
   'Only verified exact-format cards between 12 and 47 hours old; no posts or approvals.',
   'Only exact Kyiv start/clear; newer-post OR 12h timeout; never other posts.',
   'docstring')
