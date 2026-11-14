@@ -12,7 +12,7 @@ def _length(s):return len(s.encode("utf-16-le"))//2
 def append_footer(text):
  value=str(text or "").strip()
  if value.endswith(FOOTER_TEXT):value=value[:-len(FOOTER_TEXT)].rstrip()
- prefix=value+"\\\\n\\\\n" if value else ""
+ prefix=value+"\\n\\n" if value else ""
  if len(prefix)+len(FOOTER_TEXT)>1024:raise ValueError("PUBLIC_FOOTER_CAPTION_TOO_LONG")
  offset=_length(prefix);size=_length(FOOTER_TEXT)
  return prefix+FOOTER_TEXT,[{"type":"bold","offset":offset,"length":size},
