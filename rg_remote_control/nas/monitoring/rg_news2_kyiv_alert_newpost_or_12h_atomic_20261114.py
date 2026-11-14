@@ -25,14 +25,12 @@ RECEIPT=RELEASE/'receipt.json'
 LOCK=O/'rg_news2_alert_12h_release.lock'
 OLD_PY_SHA='73a348ca29b248b2f7f12cb7772d36579ae55e087d24c3435129f94a9c77cbc7'
 OLD_SH_SHA='8af9b90331ebee4187f43be62321bef2860354866f80966586afe36453db7dac'
-OLD_PARSE="""  content=re.search(r'<div\\\\b[^>]*class=\"[^\\\"]*\\\\btgme_widget_message_text\\\\b[^\\\"]*\"[^>]*>([\\\\s\\\\S]*?)</div>',block)
-  if not content:continue
+OLD_PARSE="""  if not content:continue
   text=normalize(content.group(1))
   kind=exact_alert_kind(text)
   rows.append({'id':message_id,'timestamp':int(when),'kind':kind,'text_chars':len(text)})"""
-NEW_PARSE="""  content=re.search(r'<div\\\\b[^>]*class=\"[^\\\"]*\\\\btgme_widget_message_text\\\\b[^\\\"]*\"[^>]*>([\\\\s\\\\S]*?)</div>',block)
-  # Even media-only posts are independent posts and must trigger cleanup of
-  # PRECEDING alerts. Without text they can NEVER become cleanup targets.
+NEW_PARSE="""  # A media-only post is still a NEWER post; it must never become a
+  # deletion target because it has no exact Kyiv alert text.
   text=normalize(content.group(1)) if content else ''
   kind=exact_alert_kind(text) if content else None
   rows.append({'id':message_id,'timestamp':int(when),'kind':kind,'text_chars':len(text)})"""
