@@ -18,6 +18,7 @@ DIRS={
  'private':O/'news_rg_private_multipart_receipts_v1',
  'public':O/'news_rg_publication_receipts_v1',
  'staged':O/'news_rg_private_review_staging',
+ 'activation':O/'news_rg_publication_activation_v1.json',
 }
 class Unsafe(Exception):pass
 
@@ -35,6 +36,10 @@ def read_dir(key):
 
 def reconcile():
     read_dir('decisions');read_dir('private');read_dir('public');read_dir('staged')
+    activation=load(DIRS['activation'],10000)
+    if activation.get('schema')!='NEWS_RG_PUBLICATION_ACTIVATION_V1' or activation.get('status')!='ACTIVE' or type(activation.get('activated_at'))!=int:
+        raise Unsafe('PUBLICATION_ACTIVATION_INVALID')
+    activation_at=activation['activated_at']
     dcounts=Counter(); problems=Counter(); pending=Counter()
     newest=0
     now=time.time()
@@ -46,10 +51,14 @@ def reconcile():
                 problems['unexpected_filename']+=1;continue
             d=load(p)
             choice=d.get('decision')
-            if choice not in ('editorially_accepted_not_published','editorially_rejected'):
-                problems['unexpected_decision']+=1;continue
             if d.get('draft_id')!=p.stem:
                 problems['draft_mismatch']+=1;continue
+            if choice=='editorially_expired' and d.get('schema')=='NEWS_RG_AUTOMATIC_EXPIRATION_V1':
+                dcounts[choice]+=1
+                newest=max(newest,p.stat().st_mtime)
+                continue
+            if choice not in ('editorially_accepted_not_published','editorially_rejected') or d.get('schema')!='NEWS_RG_HUMAN_EDITORIAL_DECISION_V1':
+                problems['unexpected_decision_or_schema']+=1;continue
             dcounts[choice]+=1
             newest=max(newest,p.stat().st_mtime)
             if choice!='editorially_accepted_not_published':continue
@@ -60,7 +69,10 @@ def reconcile():
                 pending['accepted_with_public_receipt_'+str(pub.get('status','UNKNOWN'))[:50]]+=1
             else:
                 timestamp=d.get('timestamp')
-                if isinstance(timestamp,(int,float)):
+                if type(timestamp) is int:
+                    if timestamp<=activation_at:
+                        pending['accepted_without_public_receipt_before_activation_not_publishable']+=1
+                        continue
                     age=now-float(timestamp)
                     key=('under_15m' if age<900 else '15_to_35m' if age<2100 else '35m_to_24h' if age<86400 else 'over_24h')
                     pending['accepted_without_public_receipt_'+key]+=1
@@ -82,6 +94,7 @@ def selftest():
     assert sample['decision'] in ('editorially_accepted_not_published','editorially_rejected')
     assert re.fullmatch(r'[a-f0-9]{24}\.json','a'*24+'.json')
     assert not re.fullmatch(r'[a-f0-9]{24}\.json','../../anything.json')
+    assert 'NEWS_RG_AUTOMATIC_EXPIRATION_V1' in reconcile.__code__.co_consts
     print('NEWS2_DECISION_RECONCILIATION_SELFTEST_PASS')
 
 if __name__=='__main__':
