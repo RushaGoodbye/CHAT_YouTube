@@ -16,7 +16,7 @@ TARGET=O/'rg_news2_chatgpt_image_illustration_v1.py'
 STAGED=Path('/tmp/rg_news2_chatgpt_image_illustration_v1.py')
 BACK=O/'rg_news2_release_backups_v8/image_generator_20261114'
 OLD_SH='46d1403bf52de42fdcff8a5991286b6a21e2a913a7ed1c419efa9b1caa18a339'
-OLD_BLOB='e5e5_placeholder'
+OLD_BLOB='4f7731dc1b6ff61d49afcb8ff40fbc47724e0bcb'
 ANCHOR='# NEWS_RG_PRIVATE_AUTOMATION_CUTOVER_V1'
 LINE="""# NEWS_RG_GPT_IMAGE_ILLUSTRATION_V1
 # No AI charges unless root-only API key exists; max 3 AI illustrations/day.
