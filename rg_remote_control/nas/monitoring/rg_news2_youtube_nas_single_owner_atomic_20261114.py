@@ -55,12 +55,12 @@ def regular(p,expected=None,maxlen=200000):
  st=p.lstat()
  if not stat.S_ISREG(st.st_mode) or st.st_size<1 or st.st_size>maxlen:
   raise Stop('UNSAFE_FILE_'+p.name)
- if p in (CF_SOURCE,CF_CONFIG):
-  # DSM live Cloudflare source tree uses root:root 0664. These files
-  # are read-only inputs, never release targets. Require exact hashes,
-  # root ownership and deny world-writable files.
+ if p in (CF_SOURCE,CF_CONFIG,YOUTUBE):
+  # DSM read-only inputs sometimes use group-write permissions/ACL.
+  # They are never overwritten. Require root ownership, exact pinned
+  # SHA256 and forbid world-write; do not alter DSM permissions.
   if st.st_uid!=0 or st.st_mode&0o002 or not expected:
-   raise Stop('CF_REFERENCE_PERMISSIONS_OR_PIN_UNSAFE')
+   raise Stop('PINNED_READONLY_REFERENCE_PERMISSIONS_UNSAFE_'+p.name)
  elif st.st_mode&0o022:
   raise Stop('UNSAFE_FILE_'+p.name)
  b=p.read_bytes()
