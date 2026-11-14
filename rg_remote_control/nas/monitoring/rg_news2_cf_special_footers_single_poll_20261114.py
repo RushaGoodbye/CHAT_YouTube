@@ -5,7 +5,7 @@ Removes branded footer from minute silence and Kyiv start/clear notices.
 Changes split visual+native poll into ONE native poll message. Single-message
 explainer with an image remains unchanged. Exact old SHA256 checks and backups.
 """
-import datetime,hashlib,json,os,stat,sys,tempfile
+import datetime,hashlib,json,os,pwd,stat,sys,tempfile
 from pathlib import Path
 
 ALERT=Path('/volume1/docker/RG_ALERTS_DEPLOY/cloudflare-alerts/src/index.js')
@@ -46,7 +46,7 @@ class Stop(ValueError):pass
 def sha(b):return hashlib.sha256(b).hexdigest()
 def safe(p):
  st=p.lstat()
- owner_ok=(st.st_uid==0 or (p==ALERT and st.st_uid==p.parent.lstat().st_uid and stat.S_ISDIR(p.parent.lstat().st_mode)))
+ owner_ok=(st.st_uid==0 or (p==ALERT and st.st_uid==pwd.getpwnam('Alex Los').pw_uid))
  if not stat.S_ISREG(st.st_mode) or not owner_ok or not 1000<=st.st_size<=400000:
   raise Stop('UNSAFE_SOURCE_'+p.name)
  return p.read_bytes()
