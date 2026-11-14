@@ -9,8 +9,10 @@ from pathlib import Path
 
 class MediaGateError(ValueError):pass
 EXPECTED_SCHEMA='NEWS2_APPROVED_WATERMARK_MANIFEST_V1'
-VALID_POSITIONS={'top_right'}
+VALID_POSITIONS={'center'}
 VALID_ASPECTS={'keep_aspect'}
+APPROVED_NOV4_SHA='1e852e8540d079ebf275294a784559557098dab455f14bcfa1efe86152b73585'
+APPROVED_PROFILE='RG_APPROVED_20261104_CENTER_040_078'
 HEX=set('0123456789abcdef')
 
 def digest(path,cap=15*1024*1024):
@@ -33,18 +35,16 @@ def verify(manifest,asset_path):
     if not isinstance(manifest,dict) or manifest.get('schema')!=EXPECTED_SCHEMA:
         raise MediaGateError('MANIFEST_SCHEMA')
     sha=manifest.get('approved_logo_sha256')
-    if not isinstance(sha,str) or len(sha)!=64 or any(c not in HEX for c in sha):
+    if not isinstance(sha,str) or sha!=APPROVED_NOV4_SHA:
         raise MediaGateError('APPROVED_LOGO_HASH_NOT_PINNED')
     if manifest.get('position') not in VALID_POSITIONS:
         raise MediaGateError('POSITION_NOT_APPROVED')
     alpha=manifest.get('opacity_pct')
     size=manifest.get('width_pct')
-    x=manifest.get('margin_x_pct')
-    y=manifest.get('margin_y_pct')
+    profile=manifest.get('watermark_profile')
     if type(alpha)!=int or alpha!=78:raise MediaGateError('APPROVED_OPACITY_78_REQUIRED')
-    if type(size)!=int or size!=20:raise MediaGateError('APPROVED_WIDTH_20_REQUIRED')
-    if type(x)!=int or type(y)!=int or x!=3 or y!=3:
-        raise MediaGateError('APPROVED_MARGIN_THREE_PERCENT_REQUIRED')
+    if type(size)!=int or size!=40:raise MediaGateError('APPROVED_WIDTH_40_REQUIRED')
+    if profile!=APPROVED_PROFILE:raise MediaGateError('APPROVED_PROFILE_MISMATCH')
     if manifest.get('aspect')!='keep_aspect':raise MediaGateError('ASPECT_INVALID')
     if manifest.get('approved_by_user') is not True:
         raise MediaGateError('EXPLICIT_VISUAL_APPROVAL_REQUIRED')
@@ -55,37 +55,38 @@ def verify(manifest,asset_path):
        'overlay_position':manifest['position'],
        'opacity_pct':alpha,
        'width_pct':size,
-       'margin_x_pct':x,
-       'margin_y_pct':y,
+       'watermark_profile':profile,
        'telegram_calls':0,'publications':0,'writes':0,
     }
 
 def selftest():
     import tempfile
-    # Selftest PNG signature only (media rendering is tested separately).
+    from unittest.mock import patch
     with tempfile.TemporaryDirectory() as d:
-        file=Path(d)/'sample.png'
-        file.write_bytes(b'\x89PNG\r\n\x1a\n'+b'test-only-sample-asset')
-        h=digest(file)
-        v={
-          'schema':EXPECTED_SCHEMA,'approved_logo_sha256':h,'position':'top_right',
-          'opacity_pct':78,'width_pct':20,'margin_x_pct':3,'margin_y_pct':3,
-          'aspect':'keep_aspect','approved_by_user':True,
+        f=Path(d)/'logo.png'
+        f.write_bytes(b'\x89PNG\r\n\x1a\n'+b'isolated-test-only')
+        profile={
+          'schema':EXPECTED_SCHEMA,
+          'approved_logo_sha256':APPROVED_NOV4_SHA,
+          'watermark_profile':APPROVED_PROFILE,
+          'position':'center',
+          'opacity_pct':78,
+          'width_pct':40,
+          'aspect':'keep_aspect',
+          'approved_by_user':True,
         }
-        assert verify(v,file)['status']=='APPROVED_WATERMARK_ASSET_VERIFIED'
-        v['approved_logo_sha256']='0'*64
-        try:verify(v,file)
-        except MediaGateError as e:assert str(e)=='LOGO_HASH_MISMATCH'
-        else:raise AssertionError('HASH_MISMATCH_NOT_REJECTED')
-        v['approved_logo_sha256']=h;v['approved_by_user']=False
-        try:verify(v,file)
-        except MediaGateError as e:assert str(e)=='EXPLICIT_VISUAL_APPROVAL_REQUIRED'
-        else:raise AssertionError('UNAPPROVED_VISUAL_PASSED')
-        v['approved_by_user']=True;v['position']='bottom_right'
-        try:verify(v,file)
-        except MediaGateError as e:assert str(e)=='POSITION_NOT_APPROVED'
-        else:raise AssertionError('POSITION_NOT_REJECTED')
-    print('NEWS2_WATERMARK_MANIFEST_GATE_4_CASES_PASS')
-    print('NEWS2_UNVERIFIED_LOGO_OR_POSITION_REJECTED_PASS')
+        with patch(__name__+'.digest',return_value=APPROVED_NOV4_SHA):
+            assert verify(profile,f)['status']=='APPROVED_WATERMARK_ASSET_VERIFIED'
+            assert verify(profile,f)['overlay_position']=='center'
+            for field,value in [('position','top_right'),('width_pct',20),('opacity_pct',60),('watermark_profile','UNKNOWN'),('approved_by_user',False),('approved_logo_sha256','0'*64)]:
+                wrong=dict(profile);wrong[field]=value
+                try:verify(wrong,f)
+                except MediaGateError:pass
+                else:raise AssertionError('MUST_REJECT_'+field)
+        try:verify(profile,f)
+        except MediaGateError:pass
+        else:raise AssertionError('UNVERIFIED_LOGO_SHA_PASSED')
+    print('NEWS2_NOV4_APPROVED_WATERMARK_8_CASES_PASS')
+    print('NEWS2_CENTER_40_PERCENT_78_ALPHA_SHA256_GATE_PASS')
 
 if __name__=='__main__':selftest()
