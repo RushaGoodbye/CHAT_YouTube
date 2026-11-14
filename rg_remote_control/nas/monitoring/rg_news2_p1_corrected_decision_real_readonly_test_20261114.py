@@ -52,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix='news2_p1_real_reconcile_') as td:
  sample={'draft_id':'a'*24,'schema':'WRONG_SCHEMA','decision':'editorially_expired'}
  (folder/('a'*24+'.json')).write_text(json.dumps(sample))
  broken=g.decision_summary(folder)
- assert broken['parse_errors']==1 and broken['issues'].get('expired_schema_mismatch')==1,broken
+ assert broken['parse_errors']==1 and broken['issues'].get('unexpected_decision_or_schema')==1,broken
  print(json.dumps({'status':'NEWS2_P1_REAL_DECISION_SCHEMA_RECONCILIATION_PASS',
    'valid_decisions':sum(result['counts'].values()),
    'counts':result['counts'],'parse_errors':result['parse_errors'],
