@@ -46,7 +46,8 @@ class Stop(ValueError):pass
 def sha(b):return hashlib.sha256(b).hexdigest()
 def safe(p):
  st=p.lstat()
- if not stat.S_ISREG(st.st_mode) or st.st_uid!=0 or not 1000<=st.st_size<=400000:
+ owner_ok=(st.st_uid==0 or (p==ALERT and st.st_uid==p.parent.lstat().st_uid and stat.S_ISDIR(p.parent.lstat().st_mode)))
+ if not stat.S_ISREG(st.st_mode) or not owner_ok or not 1000<=st.st_size<=400000:
   raise Stop('UNSAFE_SOURCE_'+p.name)
  return p.read_bytes()
 def once(s,a,b,label):
@@ -95,7 +96,7 @@ def apply():
  done=[]
  try:
   for k,v in new.items():
-   p=Path(k);mode=stat.S_IMODE(p.stat().st_mode)
+   p=Path(k);mode=(0o644 if p==ALERT else stat.S_IMODE(p.stat().st_mode))
    done.append((p,mode))
    atomic(p,v,mode)
    if sha(safe(p))!=sha(v):raise Stop('INSTALL_HASH_MISMATCH_'+p.name)
