@@ -16,7 +16,7 @@ DIR=Path('/tmp')
 SOURCES={
  'rg_news2_publication_footer_wm_readonly_gate_v1.py':'f8828e42b94a367ce941761ef087a61eb997e857',
  'rg_news2_footer_entities_contract_v2.py':'d3e8bd8f2926d150ed4796da33dd74e6704dc46f',
- 'rg_news2_watermark_manifest_gate_v1.py':'03d04f26e216fce95d17d8f88e1c4ba3decef64d',
+ 'rg_news2_watermark_manifest_gate_v1.py':'9fd8a6bbcf728fca1b0921432811db22c656fe69',
  'rg_news2_prepublication_contract_v1.py':'466e8ce498cb6c3590827d0b5aa5d672cdaca71c',
 }
 class QAStop(ValueError):pass
