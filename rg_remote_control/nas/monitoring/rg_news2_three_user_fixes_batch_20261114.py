@@ -8,9 +8,9 @@ deployment and live verification required. No Telegram/Image API calls.
 import hashlib,json,os,pathlib,subprocess,sys
 scripts=[
  ('visual','/tmp/rg_news2_visual_only_and_special_caption_atomic_20261114.py',
-  'e6e182851a7eee4baecdd682c9a991c9f3610f44'),
+  '71aa38087cd3a5fb1829148cf3c8f0a885a4c09e'),
  ('cloudflare','/tmp/rg_news2_cf_special_footers_single_poll_20261114.py',
-  '90379cfe407949078fc0dfcc7096de4a7f54681f'),
+  '0138aa4d09aa68b13458a635a14ea77663330eee'),
  ('image','/tmp/rg_news2_ai_illustration_hook_install_20261114.py',
   '51e7ecf086f877d36abe85199887be310d9c419a')
 ]
