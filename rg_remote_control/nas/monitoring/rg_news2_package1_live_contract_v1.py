@@ -51,7 +51,9 @@ def inspect_publication(photo, video, footer, callback, sched):
         return '\n'.join(ast.dump(n,include_attributes=False) for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==name)
     # Syntax and static markers provide evidence of wiring, not proof of UI appearance.
     footer_ok=has_fn(ft,'append_footer') and URL in f and LABEL in f
-    photo_preclaim='append_footer(caption)' in p and p.index('append_footer(caption)')<p.index("persist(receipt,{'status':'PUBLIC_SEND_UNCERTAIN_NO_RETRY'")
+    claim_marker="persist(receipt,{'status':'PUBLIC_SEND_UNCERTAIN_NO_RETRY'"
+    photo_preclaim=('append_footer(caption)' in p and claim_marker in p and
+                    p.index('append_footer(caption)')<p.index(claim_marker))
     photo_uses_entities="'caption_entities'" in p and "'sendPhoto'" in p
     photo_has_album="'sendMediaGroup'" in p or 'sendMediaGroup' in p
     # Album must be independently checked; direct sendPhoto entities do not cover albums.
