@@ -112,7 +112,7 @@ def decision_summary(directory):
     This fixes false parse errors in the V1 health report. It never exposes
     moderator identities, message IDs or post content.
     """
-    counts=collections.Counter();issues=collections.Counter();newest=None
+    counts=collections.Counter();issues=collections.Counter();newest=None;automatic=0
     if not directory.is_dir() or directory.is_symlink():
         return {'present':False,'parse_errors':0,'counts':{}}
     for p in directory.glob('*.json'):
@@ -128,21 +128,21 @@ def decision_summary(directory):
             if record.get('draft_id')!=p.stem:
                 issues['draft_id_mismatch']+=1;continue
             decision=record.get('decision')
-            if decision=='editorially_expired':
-                if record.get('schema')!='NEWS_RG_AUTOMATIC_EXPIRATION_V1':
-                    issues['expired_schema_mismatch']+=1;continue
+            schema=record.get('schema')
+            if decision=='editorially_expired' and schema=='NEWS_RG_AUTOMATIC_EXPIRATION_V1':
                 counts['editorially_expired']+=1
-            elif decision in ('editorially_accepted_not_published','editorially_rejected'):
-                if record.get('schema')!='NEWS_RG_HUMAN_EDITORIAL_DECISION_V1':
-                    issues['human_schema_mismatch']+=1;continue
+            elif decision=='editorially_rejected' and schema=='NEWS_RG_AUTOMATIC_EXPIRATION_V2':
+                counts['editorially_rejected']+=1
+                automatic+=1
+            elif decision in ('editorially_accepted_not_published','editorially_rejected') and schema=='NEWS_RG_HUMAN_EDITORIAL_DECISION_V1':
                 counts[decision]+=1
             else:
-                issues['unexpected_decision']+=1;continue
+                issues['unexpected_decision_or_schema']+=1;continue
             t=p.stat().st_mtime
             if newest is None or t>newest:newest=t
         except (OSError,ValueError,UnicodeError,TypeError):
             issues['unreadable']+=1
-    return {'present':True,'counts':dict(counts),'parse_errors':sum(issues.values()),
+    return {'present':True,'counts':dict(counts),'automatically_rejected_expired_v2':automatic,'parse_errors':sum(issues.values()),
             'issues':dict(issues),
             'latest_age_minutes':round((time.time()-newest)/60,1) if newest else None}
 
@@ -187,6 +187,7 @@ def selftest():
     assert 'audit' in ('audit',)
     assert decision_summary(Path('/no-such-news2-decisions'))['present'] is False
     assert 'NEWS_RG_AUTOMATIC_EXPIRATION_V1' in decision_summary.__code__.co_consts
+    assert 'NEWS_RG_AUTOMATIC_EXPIRATION_V2' in decision_summary.__code__.co_consts
     print('NEWS2_PRIVILEGED_READONLY_GATEWAY_SELFTEST_PASS')
 
 if __name__=='__main__':
