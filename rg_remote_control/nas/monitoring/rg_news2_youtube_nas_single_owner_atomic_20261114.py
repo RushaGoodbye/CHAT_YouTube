@@ -55,12 +55,19 @@ def regular(p,expected=None,maxlen=200000):
  st=p.lstat()
  if not stat.S_ISREG(st.st_mode) or st.st_size<1 or st.st_size>maxlen:
   raise Stop('UNSAFE_FILE_'+p.name)
- if p in (CF_SOURCE,CF_CONFIG,YOUTUBE):
-  # DSM read-only inputs sometimes use group-write permissions/ACL.
-  # They are never overwritten. Require root ownership, exact pinned
-  # SHA256 and forbid world-write; do not alter DSM permissions.
+ if p==YOUTUBE:
+  # Existing NAS script is a SHA256-pinned READ-ONLY input inside the
+  # separate root-owned mode-0700 operator directory, verified above.
+  # DSM ACL may present 0666 even for files not accessible to users.
+  # Do not change ACL or use this exception for any release target.
+  parent=O.lstat()
+  if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid!=0
+      or parent.st_mode&0o077 or st.st_uid!=0 or not expected):
+   raise Stop('YOUTUBE_SOURCE_PROTECTED_PARENT_OR_PIN_UNSAFE')
+ elif p in (CF_SOURCE,CF_CONFIG):
+  # Root-owned SHA-pinned read-only references. Synology uses 0664.
   if st.st_uid!=0 or st.st_mode&0o002 or not expected:
-   raise Stop('PINNED_READONLY_REFERENCE_PERMISSIONS_UNSAFE_'+p.name)
+   raise Stop('CF_REFERENCE_PERMISSIONS_OR_PIN_UNSAFE')
  elif st.st_mode&0o022:
   raise Stop('UNSAFE_FILE_'+p.name)
  b=p.read_bytes()
