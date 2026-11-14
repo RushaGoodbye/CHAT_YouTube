@@ -16,7 +16,7 @@ SOURCE=Path('/tmp/rg_news2_decisions_reconcile_readonly_v1.py')
 TARGET=Path('/volume1/docker/RG_TELEGRAM_NEWS_2/operator/rg_news2_decisions_reconcile_readonly_v1.py')
 POLICY=Path('/etc/sudoers.d/rg-news2-reconcile-ro')
 USER='Alex Los'
-EXPECTED_BLOB='dummypinned'
+EXPECTED_BLOB='3cc536971fa0867fece9fed810cd0e66abc75bd9'
 RULE='Alex\\ Los ALL=(root) NOPASSWD: /usr/bin/python3 '+str(TARGET)+' inspect\n'
 
 class SafeStop(ValueError):pass
