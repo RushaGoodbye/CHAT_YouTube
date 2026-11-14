@@ -21,7 +21,7 @@ R=NAS/'news_rg_stability_releases_v1'
 YT=Path('/tmp/rg_news2_youtube_nas_single_owner_atomic_20261114.py')
 WM=Path('/tmp/rg_news2_wm_guard_atomic_repair_20261114.py')
 GIT_BLOBS={
-    YT.name:'90a8ef3cc45300046ec5c4a3749fbfc83ffa1bf3',
+    YT.name:'453160390e722ac966db70184a1b0d138fc4d6b2',
     WM.name:'639164ccfe10c6683315c1ca86e71efddc623f6d',
 }
 EXPECTED_WM_RENDER='b37c7582954bc301efdf94bb0c42233daa9c4676fc28cfc6ec5a5ec6a4996c67'
