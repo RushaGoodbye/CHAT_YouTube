@@ -106,6 +106,39 @@ def receipt_summary(directory):
     return {'present':True,'counts':dict(counts),'parse_errors':bad,
             'latest_age_minutes':round((time.time()-newest)/60,1) if newest else None}
 
+def decision_summary(directory):
+    """Count editorial *decision* records, not receipt status.
+
+    This fixes false parse errors in the V1 health report. It never exposes
+    moderator identities, message IDs or post content.
+    """
+    counts=collections.Counter();issues=collections.Counter();newest=None
+    if not directory.is_dir() or directory.is_symlink():
+        return {'present':False,'parse_errors':0,'counts':{}}
+    for p in directory.glob('*.json'):
+        try:
+            if not re.fullmatch(r'[a-f0-9]{24}\\.json',p.name):
+                issues['unexpected_filename']+=1;continue
+            b=safe_file(p,32000)
+            if b is None:
+                issues['unreadable']+=1;continue
+            record=json.loads(b.decode('utf8'))
+            if not isinstance(record,dict):
+                issues['not_object']+=1;continue
+            if record.get('draft_id')!=p.stem:
+                issues['draft_id_mismatch']+=1;continue
+            decision=record.get('decision')
+            if decision not in ('editorially_accepted_not_published','editorially_rejected'):
+                issues['unexpected_decision']+=1;continue
+            counts[decision]+=1
+            t=p.stat().st_mtime
+            if newest is None or t>newest:newest=t
+        except (OSError,ValueError,UnicodeError,TypeError):
+            issues['unreadable']+=1
+    return {'present':True,'counts':dict(counts),'parse_errors':sum(issues.values()),
+            'issues':dict(issues),
+            'latest_age_minutes':round((time.time()-newest)/60,1) if newest else None}
+
 def staged_summary():
     stat=collections.Counter();fresh=collections.Counter()
     if not ST.is_dir() or ST.is_symlink():return {'present':False}
@@ -135,7 +168,7 @@ def audit():
             'code':code_features(),
             'private_receipts':receipt_summary(PRIVATE),
             'public_receipts':receipt_summary(PUBLIC),
-            'decision_receipts':receipt_summary(DECISIONS),
+            'decision_receipts':decision_summary(DECISIONS),
             'staged':staged_summary(),
             'read_only':True,'secrets_disclosed':False,
             'telegram_api_calls':0,'publications':0,'production_writes':0,
@@ -145,6 +178,7 @@ def selftest():
     assert safe_file(Path('/nonexistent/news2/file')) is None
     assert REJECT == {'UNCERTAIN_NO_RETRY','SENDING_UNCERTAIN','HTTP_REJECTED_NO_RETRY'}
     assert 'audit' in ('audit',)
+    assert decision_summary(Path('/no-such-news2-decisions'))['present'] is False
     print('NEWS2_PRIVILEGED_READONLY_GATEWAY_SELFTEST_PASS')
 
 if __name__=='__main__':
