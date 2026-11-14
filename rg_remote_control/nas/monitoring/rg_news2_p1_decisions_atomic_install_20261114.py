@@ -151,7 +151,7 @@ def rollback():
 def selftest():
  assert len(TARGETS)==2
  assert all(len(i['old_sha256'])==64 and len(i['new_git_blob'])==40 for i in TARGETS.values())
- assert not REL.is_relative_to(Path('/tmp'))
+ assert not str(REL).startswith('/tmp/')
  print('NEWS2_P1_DECISIONS_ATOMIC_INSTALLER_SELFTEST_PASS')
 if __name__=='__main__':
  try:
