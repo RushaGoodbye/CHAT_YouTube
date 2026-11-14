@@ -9,7 +9,7 @@ from pathlib import Path
 
 class MediaGateError(ValueError):pass
 EXPECTED_SCHEMA='NEWS2_APPROVED_WATERMARK_MANIFEST_V1'
-VALID_POSITIONS={'top_right','bottom_right'}
+VALID_POSITIONS={'top_right'}
 VALID_ASPECTS={'keep_aspect'}
 HEX=set('0123456789abcdef')
 
@@ -39,12 +39,12 @@ def verify(manifest,asset_path):
         raise MediaGateError('POSITION_NOT_APPROVED')
     alpha=manifest.get('opacity_pct')
     size=manifest.get('width_pct')
-    x=manifest.get('margin_x_px')
-    y=manifest.get('margin_y_px')
-    if type(alpha)!=int or not 10<=alpha<=100:raise MediaGateError('OPACITY_INVALID')
-    if type(size)!=int or not 4<=size<=45:raise MediaGateError('WIDTH_INVALID')
-    if type(x)!=int or type(y)!=int or not 0<=x<=300 or not 0<=y<=300:
-        raise MediaGateError('MARGINS_INVALID')
+    x=manifest.get('margin_x_pct')
+    y=manifest.get('margin_y_pct')
+    if type(alpha)!=int or alpha!=78:raise MediaGateError('APPROVED_OPACITY_78_REQUIRED')
+    if type(size)!=int or size!=20:raise MediaGateError('APPROVED_WIDTH_20_REQUIRED')
+    if type(x)!=int or type(y)!=int or x!=3 or y!=3:
+        raise MediaGateError('APPROVED_MARGIN_THREE_PERCENT_REQUIRED')
     if manifest.get('aspect')!='keep_aspect':raise MediaGateError('ASPECT_INVALID')
     if manifest.get('approved_by_user') is not True:
         raise MediaGateError('EXPLICIT_VISUAL_APPROVAL_REQUIRED')
@@ -55,8 +55,8 @@ def verify(manifest,asset_path):
        'overlay_position':manifest['position'],
        'opacity_pct':alpha,
        'width_pct':size,
-       'margin_x_px':x,
-       'margin_y_px':y,
+       'margin_x_pct':x,
+       'margin_y_pct':y,
        'telegram_calls':0,'publications':0,'writes':0,
     }
 
@@ -69,7 +69,7 @@ def selftest():
         h=digest(file)
         v={
           'schema':EXPECTED_SCHEMA,'approved_logo_sha256':h,'position':'top_right',
-          'opacity_pct':78,'width_pct':20,'margin_x_px':24,'margin_y_px':24,
+          'opacity_pct':78,'width_pct':20,'margin_x_pct':3,'margin_y_pct':3,
           'aspect':'keep_aspect','approved_by_user':True,
         }
         assert verify(v,file)['status']=='APPROVED_WATERMARK_ASSET_VERIFIED'
@@ -81,7 +81,7 @@ def selftest():
         try:verify(v,file)
         except MediaGateError as e:assert str(e)=='EXPLICIT_VISUAL_APPROVAL_REQUIRED'
         else:raise AssertionError('UNAPPROVED_VISUAL_PASSED')
-        v['approved_by_user']=True;v['position']='left'
+        v['approved_by_user']=True;v['position']='bottom_right'
         try:verify(v,file)
         except MediaGateError as e:assert str(e)=='POSITION_NOT_APPROVED'
         else:raise AssertionError('POSITION_NOT_REJECTED')
