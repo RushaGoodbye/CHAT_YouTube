@@ -8,8 +8,8 @@ from pathlib import Path
 import importlib.util,urllib.request,tempfile,json,os,types,hashlib
 repo='https://raw.githubusercontent.com/RushaGoodbye/CHAT_YouTube/'
 sources={
- 'gateway':('ffa8d4dc30b82c16bb013e651965bb5290635693','rg_news2_privileged_readonly_gateway_v1.py'),
- 'reconciler':('329641e75319d42f285bc2a48e6623484678c5a7','rg_news2_decisions_reconcile_readonly_v1.py')
+ 'gateway':('a99615b2172bb11a5531dadd6a5a26d82b767f7f','rg_news2_privileged_readonly_gateway_v1.py'),
+ 'reconciler':('43bbcb9eccc9e4a0568bf2602f7192b20de67794','rg_news2_decisions_reconcile_readonly_v1.py')
 }
 base=Path(r'\\192.168.50.32\docker\RG_TELEGRAM_NEWS_2\operator')
 with tempfile.TemporaryDirectory(prefix='news2_p1_real_reconcile_') as td:
@@ -30,6 +30,7 @@ with tempfile.TemporaryDirectory(prefix='news2_p1_real_reconcile_') as td:
  g.PUBLIC=base/'news_rg_publication_receipts_v1'
  result=g.decision_summary(g.DECISIONS)
  assert result['parse_errors']==0,result
+ assert result['automatically_rejected_expired_v2']==26,result
  assert result['counts']=={'editorially_accepted_not_published':48,
                             'editorially_rejected':198,
                             'editorially_expired':1},result
@@ -43,6 +44,7 @@ with tempfile.TemporaryDirectory(prefix='news2_p1_real_reconcile_') as td:
  }
  re=r.reconcile()
  assert re['decision_parse_issues']=={},re
+ assert re['automatically_rejected_expired_v2']==26,re
  assert re['accepted_publication_reconciliation'].get('accepted_with_public_receipt_PUBLIC_PUBLISHED_CONFIRMED')==47,re
  assert re['accepted_publication_reconciliation'].get('accepted_without_public_receipt_before_activation_not_publishable')==1,re
  # Isolated corrupted decision does not silently count as normal.
