@@ -35,7 +35,8 @@ RECEIPT=RELEASE/'receipt.json'
 LOCK=O/'rg_news2_youtube_owner_release.lock'
 APPROVED_TICK_SHA='bf45f8dbcdee9577d92eb5aa3c465361a2d6da74868733fdfeab702b2aa1ce2d'
 APPROVED_YT_SHA='83842e3fe7da60d7758070e0aec0b950f30cc0358b85ea0e056ab271ebd0fe2a'
-APPROVED_CF_SOURCE_SHA='39474c68ed2fbba08a6ca40621b7c53422271613c6f321828f3c7eba6b7aa e70'.replace(' ','')
+APPROVED_CF_SOURCE_SHA='39474c68ed2fbba08a6ca40621b7c53422271613c6f321828f3c7eba6b7aae70'
+APPROVED_CF_CONFIG_SHA='d12ba57657c97385a683b5fe7393b0c22eb4a53d2b5a4796fef526f36c0f91e3'
 OLD_BLOCK=(
  '# NEWS_RG_YOUTUBE_TOP_SINGLE_OWNER_V1\n'
  '# NAS duplicate disabled: Cloudflare owns Tue/Thu 18:00 Europe/Kyiv.\n'
@@ -52,7 +53,15 @@ class Stop(ValueError):pass
 def sha(b):return hashlib.sha256(b).hexdigest()
 def regular(p,expected=None,maxlen=200000):
  st=p.lstat()
- if not stat.S_ISREG(st.st_mode) or st.st_size<1 or st.st_size>maxlen or st.st_mode&0o022:
+ if not stat.S_ISREG(st.st_mode) or st.st_size<1 or st.st_size>maxlen:
+  raise Stop('UNSAFE_FILE_'+p.name)
+ if p in (CF_SOURCE,CF_CONFIG):
+  # DSM live Cloudflare source tree uses root:root 0664. These files
+  # are read-only inputs, never release targets. Require exact hashes,
+  # root ownership and deny world-writable files.
+  if st.st_uid!=0 or st.st_mode&0o002 or not expected:
+   raise Stop('CF_REFERENCE_PERMISSIONS_OR_PIN_UNSAFE')
+ elif st.st_mode&0o022:
   raise Stop('UNSAFE_FILE_'+p.name)
  b=p.read_bytes()
  if expected and sha(b)!=expected:raise Stop('SOURCE_SHA_CHANGED_'+p.name)
@@ -78,7 +87,7 @@ def program_assertions():
  b=regular(TICK,APPROVED_TICK_SHA)
  y=regular(YOUTUBE,APPROVED_YT_SHA)
  cf=regular(CF_SOURCE,APPROVED_CF_SOURCE_SHA,150000)
- config=regular(CF_CONFIG,maxlen=25000).decode()
+ config=regular(CF_CONFIG,APPROVED_CF_CONFIG_SHA,maxlen=25000).decode()
  st=b.decode('utf8')
  if st.count(OLD_BLOCK)!=1 or 'news_rg_youtube_top_schedule_v1.py\' tick' in st:
   raise Stop('DSM_SCHEDULE_CONTRACT_CHANGED')
