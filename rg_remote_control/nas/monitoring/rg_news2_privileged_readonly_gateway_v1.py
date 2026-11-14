@@ -117,7 +117,7 @@ def decision_summary(directory):
         return {'present':False,'parse_errors':0,'counts':{}}
     for p in directory.glob('*.json'):
         try:
-            if not re.fullmatch(r'[a-f0-9]{24}\\.json',p.name):
+            if not re.fullmatch(r'[a-f0-9]{24}\.json',p.name):
                 issues['unexpected_filename']+=1;continue
             b=safe_file(p,32000)
             if b is None:
