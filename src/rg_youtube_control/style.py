@@ -45,28 +45,37 @@ QLabel#ChannelState {
     color: #d7d7d7;
 }
 QFrame#VidIQSeoCard {
-    background: #151b26;
-    border: 1px solid #305279;
-    border-radius: 12px;
+    background: #151c27;
+    border: 1px solid #34485e;
+    border-radius: 10px;
+}
+QFrame#VidIQSeoCard QLabel {
+    background: transparent;
+    border: none;
+    padding: 0px;
 }
 QLabel#VidIQSeoHeading {
     color: #f5f9ff;
-    font-size: 13pt;
-    font-weight: 800;
+    font-size: 12pt;
+    font-weight: 750;
 }
-QLabel#VidIQSeoSteps {
-    color: #77c8ff;
+QLabel#VidIQSeoStatus {
+    color: #e0e8f3;
     font-size: 10pt;
     font-weight: 600;
 }
-QLabel#VidIQSeoNote {
-    color: #bac8d9;
+QLabel#VidIQSeoSteps {
+    color: #aac1d5;
     font-size: 9pt;
+}
+QFrame#VidIQSeoCard QPushButton {
+    min-width: 134px;
+    padding: 8px 12px;
 }
 QFrame#VidIQSeoCard QPushButton[role="primary"] {
     background: #1476bb;
-    border-color: #319fe8;
-    color: #fff;
+    border: 1px solid #319fe8;
+    color: #ffffff;
     font-weight: 700;
 }
 QFrame#VidIQSeoCard QPushButton[role="primary"]:hover {
