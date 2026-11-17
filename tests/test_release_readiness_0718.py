@@ -49,8 +49,8 @@ def test_metadata_only_keeps_safe_no_ab_workflow():
 
 def test_scheduled_stream_remains_supported():
     ok, why = ready_for_youtube(
-        status="ready", generation="scheduled-import",
-        quality_state="", variants=[], scheduled=True,
+        status="ready", generation="manual-reviewed-srt-v1",
+        quality_state="editor_approved", variants=[], scheduled=True,
     )
     assert ok and not why
 
