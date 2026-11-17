@@ -148,12 +148,12 @@ class VidIQReviewDialog(QDialog):
         try:
             excerpt = path.read_text(
                 encoding="utf-8-sig", errors="replace"
-            )[:7000]
+            )
         except OSError as exc:
             excerpt = str(exc)
         self.preview.setPlainText(
             "Джерело SRT: " + str(path) + "\n"
-            + "Перегляд перших 7000 символів, НЕ повна редакторська перевірка.\n\n"
+            + "Повний текст SRT, НЕ автоматичне підтвердження фактів.\n\n"
             + excerpt
         )
 
