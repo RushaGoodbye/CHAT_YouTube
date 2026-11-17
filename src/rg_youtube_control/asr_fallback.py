@@ -117,7 +117,8 @@ def _recent_asr_failures(folder: Path, profile: str) -> set[str]:
 
 def run_asr(*, db_path: str | Path, srt_dir: str | Path, temp_dir: str | Path,
             profile: str = "main", limit: int = 2,
-            max_duration: int = 3600, execute: bool = False) -> dict:
+            max_duration: int = 3600, execute: bool = False,
+            only_video_id: str = "") -> dict:
     if profile not in {"main", "live"} or not 1 <= limit <= 10:
         raise ValueError("Invalid profile or limit")
     db = Path(db_path)
@@ -133,6 +134,8 @@ def run_asr(*, db_path: str | Path, srt_dir: str | Path, temp_dir: str | Path,
         selected = []
         for row in candidates:
             video_id = str(row["video_id"])
+            if only_video_id and video_id != only_video_id:
+                continue
             length = _seconds(row["duration"])
             if (not VIDEO_ID.fullmatch(video_id)
                 or video_id in cooldown
@@ -210,7 +213,10 @@ def run_asr(*, db_path: str | Path, srt_dir: str | Path, temp_dir: str | Path,
                                 "segments":len(asr_rows), "coverage":inspected["end_coverage"],
                                 "editorial_approval":False,
                                 "youtube_api_units":0}
-                        _write_atomic(target/(vid+".json"),json.dumps(
+                        metadata_path = target / (vid + ".json")
+                        if metadata_path.exists():
+                            metadata_path = target / (vid + ".asr.json")
+                        _write_atomic(metadata_path,json.dumps(
                             meta,ensure_ascii=False,indent=2))
                         item["status"] = "complete"
                         item.update(inspect_seo_draft(row, text))
@@ -254,10 +260,11 @@ def main(argv=None):
     parser.add_argument("--limit",type=int,default=2)
     parser.add_argument("--max-duration",type=int,default=3600)
     parser.add_argument("--execute",action="store_true")
+    parser.add_argument("--video-id",default="")
     args=parser.parse_args(argv)
     report=run_asr(db_path=args.db,srt_dir=args.srt_dir,temp_dir=args.temp_dir,
                    profile=args.profile,limit=args.limit,max_duration=args.max_duration,
-                   execute=args.execute)
+                   execute=args.execute,only_video_id=args.video_id)
     print(json.dumps({k:v for k,v in report.items() if k != "records"},
                      ensure_ascii=False,indent=2),flush=True)
 
