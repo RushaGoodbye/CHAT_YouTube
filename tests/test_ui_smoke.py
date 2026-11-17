@@ -23,3 +23,34 @@ def test_main_window_guided_ui_smoke(tmp_path, monkeypatch) -> None:
     finally:
         window.close()
         app.processEvents()
+
+
+def test_vidiq_first_seo_ui_and_legacy_generator_disabled(tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication, QPushButton, QFrame
+    from rg_youtube_control import ui
+
+    monkeypatch.setattr(ui, "app_data_dir", lambda: tmp_path)
+    app = QApplication.instance() or QApplication([])
+    window = ui.MainWindow()
+    try:
+        cards = window.findChildren(QFrame, "VidIQSeoCard")
+        assert len(cards) == 1
+        labels = [button.text() for button in cards[0].findChildren(QPushButton)]
+        assert "Відкрити vidIQ" in labels
+        assert "Редагувати SEO-пакет" in labels
+        assert window.advanced_batch_seo_action.isEnabled() is False
+
+        destinations = []
+        monkeypatch.setattr(window, "_selected_optimization_video_ids",
+                            lambda: ["MEitKm687xo"])
+        monkeypatch.setattr(ui.QDesktopServices, "openUrl",
+                            lambda url: destinations.append(url.toString()) or True)
+        monkeypatch.setattr(window, "_generate_local_seo_result",
+                            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                                AssertionError("Legacy generator must never run")))
+        window.local_seo_selected()
+        assert destinations == ["https://app.vidiq.com/"]
+        assert app.clipboard().text() == "https://www.youtube.com/watch?v=MEitKm687xo"
+    finally:
+        window.close()
+        app.processEvents()
