@@ -76,3 +76,19 @@ def test_editor_requires_explicit_srt_confirmation(tmp_path, monkeypatch):
     finally:
         dialog.close()
         app.processEvents()
+
+
+def test_safe_metadata_dialog_does_not_incorrectly_show_legacy_warning():
+    from PySide6.QtWidgets import QApplication, QLabel
+    from rg_youtube_control.ui import ContentOptimizationDialog
+    app = QApplication.instance() or QApplication([])
+    d = ContentOptimizationDialog(
+        "Назва", "Опис", "", ["один"], "draft",
+        generation="safe-metadata-0.7.6", quality_state="safe_metadata",
+    )
+    try:
+        assert "Безпечне виправлення" in d.origin_note.text()
+        assert not d.findChildren(QLabel, "SeoOriginWarning")
+    finally:
+        d.close()
+        app.processEvents()
