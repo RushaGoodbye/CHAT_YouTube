@@ -66,7 +66,9 @@ def test_compact_vidiq_workspace_selection_state(tmp_path, monkeypatch) -> None:
     try:
         cards = window.findChildren(QFrame, "VidIQSeoCard")
         assert len(cards) == 1
-        assert len(cards[0].findChildren(QPushButton)) == 2
+        assert len(cards[0].findChildren(QPushButton)) == 4
+        assert window.vidiq_import_btn.text() == "Імпорт із vidIQ"
+        assert window.vidiq_review_btn.text() == "Пакет vidIQ · перегляд"
         assert not window.vidiq_edit_package_btn.isEnabled()
 
         monkeypatch.setattr(
