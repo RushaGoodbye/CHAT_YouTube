@@ -56,7 +56,9 @@ jobs:
       - name: Run tests
         shell: pwsh
         run: |
-          $env:PYTHONPATH="src"
+          # The suite contains standalone scripts-based QA modules as well
+          # as the desktop package. Both paths are needed for collection.
+          $env:PYTHONPATH="src;scripts"
           python -m pytest -q tests
 
       - name: Build application
