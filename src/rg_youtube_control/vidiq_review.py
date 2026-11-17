@@ -92,7 +92,16 @@ def load_inbox(path: Path) -> dict:
         if stage not in STATUSES:
             raise ValueError("Unknown vidIQ review stage")
         video["stage"] = stage
-        if stage == "CONTENT_REVIEWED" and stored.get("editor_reviewed_at"):
+        selected = stored.get("selected_title")
+        if selected is not None:
+            if not isinstance(selected, str) or selected not in [
+                x["title"] for x in video["title_suggestions"]
+            ]:
+                raise ValueError("Selected vidIQ title must match a real option")
+            video["selected_title"] = selected
+        if stage in ("CONTENT_REVIEWED", "APPLIED") and not selected:
+            raise ValueError("Approved vidIQ records require a selected title")
+        if stage in ("CONTENT_REVIEWED", "APPLIED") and stored.get("editor_reviewed_at"):
             video["editor_reviewed_at"] = stored["editor_reviewed_at"]
     return validated
 
@@ -127,7 +136,9 @@ def import_proposals(source_path: Path, inbox_path: Path, *,
 
 
 def set_editorial_reviewed(inbox_path: Path, video_id: str, *,
-                           confirmed_content: bool) -> bool:
+                           confirmed_content: bool,
+                           selected_title: str = "") -> bool:
+    """Approve exactly one real vidIQ option, without publishing anything."""
     if not confirmed_content:
         raise ValueError("Explicit manual factual review is required")
     data = load_inbox(inbox_path)
@@ -135,6 +146,10 @@ def set_editorial_reviewed(inbox_path: Path, video_id: str, *,
         if video["video_id"] == video_id:
             if video.get("stage") == "APPLIED":
                 raise ValueError("Applied video may not be edited")
+            choices = [item["title"] for item in video["title_suggestions"]]
+            if selected_title not in choices:
+                raise ValueError("Select one of the actual vidIQ titles")
+            video["selected_title"] = selected_title
             video["stage"] = "CONTENT_REVIEWED"
             video["editor_reviewed_at"] = datetime.now(timezone.utc).isoformat()
             save_json_atomic(inbox_path, data)
