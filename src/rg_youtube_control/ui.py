@@ -3845,6 +3845,8 @@ class MainWindow(QMainWindow):
                     "VIDIQ_SUGGESTED": " · пропозиції vidIQ · на затвердженні",
                     "CONTENT_REVIEWED": " · vidIQ · зміст перевірено вручну",
                     "APPLIED": " · vidIQ · застосовано",
+                    "REJECTED": " · vidIQ · усі варіанти відхилено",
+                    "SKIPPED": " · vidIQ · пропущено",
                 }.get(record["stage"], " · очікує vidIQ")
         except (OSError, ValueError, KeyError):
             pass
@@ -9129,6 +9131,10 @@ class MainWindow(QMainWindow):
                 draft_status = "ПЕРЕВІРЕНО · vidIQ"
             elif vidIQ_stage == "APPLIED" and draft_key == "applied":
                 draft_status = "ЗАСТОСОВАНО · vidIQ"
+            elif vidIQ_stage == "REJECTED":
+                draft_status = "ВІДХИЛЕНО · vidIQ"
+            elif vidIQ_stage == "SKIPPED":
+                draft_status = "ПРОПУЩЕНО · vidIQ"
             last_optimized, checkpoint_text = (
                 self._optimization_checkpoint_text(row["last_optimized_at"])
             )
