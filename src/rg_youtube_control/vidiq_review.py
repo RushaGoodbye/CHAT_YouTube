@@ -83,7 +83,18 @@ def load_inbox(path: Path) -> dict:
         return {"source": SOURCE, "channel_id": "", "type": "titles_only",
                 "publishing_enabled": False, "automatic_approval": False,
                 "videos": []}
-    return validate_vidiq_proposals(json.loads(path.read_text(encoding="utf-8")))
+    original = json.loads(path.read_text(encoding="utf-8"))
+    validated = validate_vidiq_proposals(original)
+    by_id = {v["video_id"]: v for v in original["videos"]}
+    for video in validated["videos"]:
+        stored = by_id[video["video_id"]]
+        stage = str(stored.get("stage") or "VIDIQ_SUGGESTED")
+        if stage not in STATUSES:
+            raise ValueError("Unknown vidIQ review stage")
+        video["stage"] = stage
+        if stage == "CONTENT_REVIEWED" and stored.get("editor_reviewed_at"):
+            video["editor_reviewed_at"] = stored["editor_reviewed_at"]
+    return validated
 
 
 def import_proposals(source_path: Path, inbox_path: Path, *,
