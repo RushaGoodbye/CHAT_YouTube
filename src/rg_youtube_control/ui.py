@@ -3484,15 +3484,8 @@ class MainWindow(QMainWindow):
         self.vidiq_edit_package_btn = QPushButton("Редагувати SEO-пакет")
         self.vidiq_edit_package_btn.setEnabled(False)
         self.vidiq_edit_package_btn.clicked.connect(self.edit_content_package)
-        self.batch_transcript_btn = QPushButton("Пакет SRT + SEO · 10")
-        self.batch_transcript_btn.setToolTip(
-            "Без квоти YouTube API: отримати до 10 SRT та скласти звіт на NAS. "
-            "Не публікує SEO і не підтверджує факти автоматично."
-        )
-        self.batch_transcript_btn.clicked.connect(self.run_transcript_seo_batch)
         seo_buttons.addWidget(open_vidiq_btn)
         seo_buttons.addWidget(self.vidiq_edit_package_btn)
-        seo_buttons.addWidget(self.batch_transcript_btn)
         seo_card_layout.addLayout(seo_buttons)
         layout.addWidget(seo_card)
 
@@ -13508,49 +13501,6 @@ class MainWindow(QMainWindow):
                 else "\n\nПовні причини записані у «Журнал»."
             ),
         )
-
-    def run_transcript_seo_batch(self) -> None:
-        """Quota-free bounded SRT batch, never modifies YouTube metadata."""
-        from .batch_seo_pipeline import run_batch
-
-        profile = self.current_profile
-        db_path = self.data_dir / "rg_youtube_control.db"
-        target = self._nas_path(
-            "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH
-        )
-        answer = QMessageBox.question(
-            self,
-            "Пакет транскриптів та SEO",
-            "Отримати до 10 відсутніх повних SRT через публічні субтитри "
-            "YouTube та записати пакетний звіт на NAS?\\n\\n"
-            "YouTube Data API: 0 квоти. SEO-публікації: вимкнені. "
-            "Непідтверджені пакети залишаться на перевірці.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
-        def task():
-            return run_batch(
-                db_path=db_path, srt_dir=target, profile=profile,
-                limit=10, acquire=True,
-            )
-
-        def done(result):
-            self.reload_optimization_queue()
-            summary = result["status_counts"]
-            QMessageBox.information(
-                self, "Пакет SRT + SEO",
-                "Перевірено: " + str(result["pending_count"])
-                + "\\nПовні SRT: " + str(summary.get("complete", 0))
-                + "\\nНеповні: " + str(summary.get("incomplete", 0))
-                + "\\nНедоступні: " + str(summary.get("fetch_failed", 0))
-                + "\\n\\nЗвіт: " + result["report_csv"]
-                + "\\nSEO залишено на редакторській перевірці.",
-            )
-
-        self._run_local_tool("Пакет SRT та SEO без публікації", task, done)
 
     def open_vidiq_selected(self) -> None:
         """Open the real vidIQ app without pretending MCP is embedded here."""
