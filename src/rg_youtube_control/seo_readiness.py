@@ -39,6 +39,10 @@ def ready_for_youtube(
         )
     if quality_state != "editor_approved":
         reasons.append("SEO не підтверджено редактором; залишити чернеткою.")
+    # Scheduled streams do not need A/B title alternatives. They still
+    # require explicit source and editorial approval for full SEO changes.
+    if scheduled:
+        return not reasons, tuple(reasons)
     if isinstance(variants, str):
         try:
             variants = json.loads(variants)
