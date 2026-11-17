@@ -67,3 +67,15 @@ def test_incomplete_existing_is_never_overwritten(tmp_path):
     result=run_batch(db_path=db,srt_dir=path,profile="main",limit=10,acquire=False)
     assert result["status_counts"]=={"incomplete":1}
     assert srt.read_text(encoding="utf-8").endswith("hello\n")
+
+
+def test_full_transcript_requires_beginning_and_end_coverage():
+    rows=[{"text":"Substantive words appearing throughout this conversation repeatedly",
+           "start":i*10,"duration":9} for i in range(12)]
+    assert inspect_srt(srt_text(rows), 120)["complete"]
+    # Duration is 180+ seconds: late start and truncated ending are blockers.
+    late=[dict(row, start=row["start"]+300) for row in rows]
+    result=inspect_srt(srt_text(late), 450)
+    assert "transcript_missing_beginning" in result["issues"]
+    end_short=inspect_srt(srt_text(rows), 180)
+    assert "transcript_truncated" in end_short["issues"]
