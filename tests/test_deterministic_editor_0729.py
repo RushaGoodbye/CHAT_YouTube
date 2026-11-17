@@ -41,8 +41,9 @@ def test_editor_not_model_authored_when_evidence_is_verified():
 def test_primary_seo_button_visible():
     from pathlib import Path
     source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
-    assert 'QPushButton("Створити SEO вибраного")' in source
-    assert "seo_selected_guided_btn.clicked.connect(self.local_seo_selected)" in source
+    assert 'QPushButton("Відкрити SEO у vidIQ")' in source
+    assert "seo_selected_guided_btn.clicked.connect(self.open_vidiq_selected)" in source
+    assert 'self.advanced_batch_seo_action.setEnabled(False)' in source
     assert "            seo_selected_guided_btn,\n            prepare_guided_btn," in source
 
 def test_non_substantive_qa_label_does_not_block_real_topics():
