@@ -68,3 +68,14 @@ use the previous installer and restore the saved user-data archive.
 The vidIQ handoff is a browser link, not a direct API connection from the
 Windows program. vidIQ output must still be reviewed against the SRT in
 the package editor before any manual YouTube metadata action.
+
+## 0.7.47 · Редакторський контроль джерела SEO
+
+- Старі локальні SEO-пакети не видаляються, але позначаються як непідтверджені.
+- У вкладці «Оптимізація» є фільтр «Старі SEO-пакети».
+- Редактор показує походження пакета: старий, vidIQ (перенесено вручну), ручний/SRT.
+- Щоб позначити повний SEO-пакет «Готово», потрібно вибрати реальне походження і особисто підтвердити перевірку назви, опису, тегів та A/B за SRT.
+- Старі статуси ready/editor_approved/safe більше не обходять нові вимоги.
+- Заплановані повні SEO-пакети також потребують підтвердженого джерела.
+- Безпечні виправлення лише метаданих продовжують працювати без A/B.
+- Ніякої автоматичної публікації чи запитів до vidIQ у цьому випуску.
