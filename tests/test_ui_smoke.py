@@ -54,3 +54,37 @@ def test_vidiq_first_seo_ui_and_legacy_generator_disabled(tmp_path, monkeypatch)
     finally:
         window.close()
         app.processEvents()
+
+
+def test_compact_vidiq_workspace_selection_state(tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QFrame
+    from rg_youtube_control import ui
+
+    monkeypatch.setattr(ui, "app_data_dir", lambda: tmp_path)
+    app = QApplication.instance() or QApplication([])
+    window = ui.MainWindow()
+    try:
+        cards = window.findChildren(QFrame, "VidIQSeoCard")
+        assert len(cards) == 1
+        assert len(cards[0].findChildren(QPushButton)) == 2
+        assert not window.vidiq_edit_package_btn.isEnabled()
+
+        monkeypatch.setattr(
+            window, "_selected_optimization_video_ids",
+            lambda: ["MEitKm687xo"],
+        )
+        window._update_vidiq_seo_status()
+        assert "MEitKm687xo" in window.vidiq_seo_status.text()
+        assert "пакет ще не підготовлено" in window.vidiq_seo_status.text()
+        assert window.vidiq_edit_package_btn.isEnabled()
+        assert window.vidiq_seo_status.objectName() == "VidIQSeoStatus"
+
+        monkeypatch.setattr(
+            window, "_selected_optimization_video_ids", lambda: [],
+        )
+        window._update_vidiq_seo_status()
+        assert not window.vidiq_edit_package_btn.isEnabled()
+        assert "Виберіть одне відео" in window.vidiq_seo_status.text()
+    finally:
+        window.close()
+        app.processEvents()
