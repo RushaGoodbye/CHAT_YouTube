@@ -44,6 +44,24 @@ QLabel#ChannelState {
     padding: 5px 10px;
     color: #d7d7d7;
 }
+QLabel#SeoOriginHeading {
+    color: #e4eef9;
+    font-size: 10pt;
+    font-weight: 700;
+}
+QLabel#SeoOriginNote {
+    color: #83c7f1;
+    font-size: 10pt;
+}
+QLabel#SeoOriginWarning {
+    background: #392516;
+    color: #ffd29d;
+    border: 1px solid #a66529;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 10pt;
+    font-weight: 600;
+}
 QFrame#VidIQSeoCard {
     background: #151c27;
     border: 1px solid #34485e;
