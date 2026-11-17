@@ -35,7 +35,7 @@ def test_batch_dry_run_does_not_touch_db_or_srt(tmp_path):
     before=db.read_bytes()
     result=run_batch(db_path=db,srt_dir=path,profile="main",limit=10,acquire=False)
     assert result["status_counts"]=={"missing_dry_run":1}
-    assert result["editorial_approval_automated"] is False
+    assert result["seo_generation_enabled"] is False
     assert result["youtube_data_api_units_used"]==0
     assert result["youtube_metadata_modified"] is False
     assert db.read_bytes()==before
