@@ -186,7 +186,7 @@ from .service import (
 from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .windows_runtime import powershell_status
-from .seo_readiness import exact_video_id_search, ready_for_youtube
+from .seo_readiness import exact_video_id_search, ready_for_youtube, persisted_quality_state
 from .seo_origin import source_label, is_unverified_legacy, is_metadata_only, VERIFIED_EDITOR_SOURCES
 from .public_comments import csv_safe_public_comment_cell, fetch_public_comment_sample
 from .updater import (
@@ -10037,6 +10037,22 @@ class MainWindow(QMainWindow):
                 tags=tags,
                 require_ukrainian=False,
             )
+            saved_quality_state = persisted_quality_state(
+                status=status,
+                original_generation=(str(draft["generation"] or "") if draft is not None else ""),
+                original_quality_state=(str(draft["quality_state"] or "") if draft is not None else ""),
+                selected_generation=dialog.selected_generation(),
+                confirmed_srt=dialog.srt_confirm.isChecked(),
+                technical_quality=quality_state,
+            )
+            if status == "ready" and saved_quality_state == "review":
+                QMessageBox.warning(
+                    self,
+                    "Пакет не готовий",
+                    "Редакторське підтвердження або перевірка метаданих не пройдені. "
+                    "Перевірте пакет і збережіть його як чернетку.",
+                )
+                return
             save_optimization_draft(
                 self.conn,
                 video_id,
@@ -10047,10 +10063,7 @@ class MainWindow(QMainWindow):
                 status,
                 title_variants,
                 generation=dialog.selected_generation(),
-                quality_state=(
-                    "safe" if quality_state == "safe" and status != "draft"
-                    else "review"
-                ),
+                quality_state=saved_quality_state,
                 quality_reason="; ".join(quality_reasons),
                 source_title=current_title,
                 source_description=current_description,
