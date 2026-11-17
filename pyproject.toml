@@ -21,8 +21,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Lingua 2.x requires Python >=3.12; the production build currently uses
-# 3.11, so this is a tested opt-in local QA capability, not an installer bloat.
+# Lingua 2.x requires Python >=3.12. The Windows build targets 3.12,
+# but language detection remains optional and is not bundled into the installer.
 seo-language = [
   "lingua-language-detector>=2.0,<3; python_version >= '3.12'",
 ]
