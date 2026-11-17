@@ -94,6 +94,56 @@ def _fetch(video_id: str) -> tuple[list[dict], str]:
     raise RuntimeError(";".join(errors) or "captions_unavailable")
 
 
+
+def inspect_seo_draft(video: sqlite3.Row, transcript_content: str | None) -> dict:
+    """Read-only SEO field audit. Never claims that reported facts are verified."""
+    from .free_tools import parse_srt_transcript
+    issues = []
+    title = str(video["draft_title"] or video["title"] or "").strip()
+    description = str(video["draft_description"] or "").strip()
+    try:
+        tags = json.loads(video["draft_tags"] or "[]")
+        if not isinstance(tags, list):
+            tags = []
+    except (ValueError, TypeError):
+        tags = []
+    try:
+        variants = json.loads(video["variants"] or "[]")
+        if not isinstance(variants, list):
+            variants = []
+    except (ValueError, TypeError):
+        variants = []
+    if not title or len(title) > 100:
+        issues.append("title_empty_or_over_100")
+    if len(description) < 120:
+        issues.append("description_too_short")
+    if len([tag for tag in tags if str(tag).strip()]) < 8:
+        issues.append("fewer_than_8_tags")
+    if len(variants) != 3:
+        issues.append("ab_requires_three_distinct_titles")
+    else:
+        from .dialogue_seo import ab_title_issues
+        if ab_title_issues(variants):
+            issues.append("ab_title_quality_requires_review")
+    if transcript_content is None:
+        issues.append("no_full_srt_evidence")
+    else:
+        segments = parse_srt_transcript(transcript_content)
+        transcript_words = {
+            word for segment in segments
+            for word in re.findall(r"[\\w\\u0400-\\u052f]{5,}",
+                                   str(segment.get("text") or "").casefold())
+        }
+        title_words = {
+            word for word in re.findall(r"[\\w\\u0400-\\u052f]{5,}", title.casefold())
+            if word not in {"рашагудбай", "россия", "росії", "раша", "гудбай"}
+        }
+        if title_words and len(title_words & transcript_words) / len(title_words) < 0.2:
+            issues.append("title_low_lexical_support_in_srt")
+    return {"seo_checks": issues, "seo_result": "editorial_review_required",
+            "editorial_approval_automated": False}
+
+
 def _write_atomic(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
@@ -115,7 +165,10 @@ def _candidates(conn: sqlite3.Connection, profile: str, limit: int) -> list[sqli
                   COALESCE(d.status,'') AS draft_status,
                   COALESCE(d.generation,'') AS generation,
                   COALESCE(d.quality_state,'') AS quality_state,
-                  COALESCE(d.title_variants_json,'[]') AS variants
+                  COALESCE(d.title_variants_json,'[]') AS variants,
+                  COALESCE(d.new_title,'') AS draft_title,
+                  COALESCE(d.description,'') AS draft_description,
+                  COALESCE(d.tags_json,'[]') AS draft_tags
            FROM videos v
            LEFT JOIN optimization_drafts d ON d.video_id=v.video_id
            WHERE v.profile=?
@@ -182,6 +235,7 @@ def run_batch(*, db_path: str | Path, srt_dir: str | Path, profile: str = "main"
                     source = "existing_srt"
                 elif not acquire:
                     row["srt_result"] = "missing_dry_run"
+                    row.update(inspect_seo_draft(video, None))
                     records.append(row)
                     continue
                 else:
@@ -208,6 +262,8 @@ def run_batch(*, db_path: str | Path, srt_dir: str | Path, profile: str = "main"
                 if any(token in row["error"].casefold()
                        for token in ("429", "ratelimit", "too many requests", "ipblocked")):
                     blocked = True
+            content_for_audit = content if row['srt_result'] == 'complete' else None
+            row.update(inspect_seo_draft(video, content_for_audit))
             records.append(row)
             if progress:
                 progress(f"{index}/{len(pending)} {video_id}: {row['srt_result']}")
