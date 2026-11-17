@@ -14,7 +14,7 @@ def test_editor_confirmation_is_persisted():
     state=_state()
     assert state=="editor_approved"
     approved, errors=ready_for_youtube(status="ready",generation="manual-reviewed-srt-v1",
-        quality_state=state, variants=["One conflict and response", "Different point of view", "Third distinct perspective"])
+        quality_state=state, variants=["Волгоградський завод зупинив роботу після вибухів", "У Криму обговорюють перебої руху через міст", "Розмова про евакуацію та рішення місцевих служб"])
     assert approved, errors
 
 
