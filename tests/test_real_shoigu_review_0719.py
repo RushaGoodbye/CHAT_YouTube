@@ -94,6 +94,7 @@ def test_editor_does_not_display_unverified_stored_ready(monkeypatch):
         "title_variants_json": __import__("json").dumps(SHOIGU_VARIANTS, ensure_ascii=False),
         "status": "ready",
         "generation": "local-seo",
+        "quality_state": "review",
     })
     fake_window = SimpleNamespace(
         _selected_optimization_video_ids=lambda: ["MiEtkMo87xo"],
