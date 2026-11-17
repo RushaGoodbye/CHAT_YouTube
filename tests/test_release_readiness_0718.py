@@ -29,7 +29,7 @@ def test_unreviewed_legacy_ready_is_not_published():
 
 def test_three_editor_approved_different_topics_enable_release():
     ok, errors = ready_for_youtube(
-        status="ready", generation="manual", quality_state="editor_approved",
+        status="ready", generation="manual-reviewed-srt-v1", quality_state="editor_approved",
         variants=[
             "ПОЛІЦІЯ ЛНР ПОВЕРНУЛА МАЙНО: РОЗПОВІДЬ ОЧЕВИДЦЯ",
             "ДЕ ПОДІЛАСЯ ВОДА? СПІВРОЗМОВНИК ПРО ЖИТТЯ В ЛУГАНСЬКУ",
