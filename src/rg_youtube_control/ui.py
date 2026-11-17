@@ -3314,12 +3314,13 @@ class MainWindow(QMainWindow):
         ):
             hidden_button.setVisible(False)
 
-        seo_selected_guided_btn = QPushButton("Створити SEO вибраного")
+        seo_selected_guided_btn = QPushButton("Відкрити SEO у vidIQ")
         seo_selected_guided_btn.setProperty("role", "primary")
         seo_selected_guided_btn.setToolTip(
-            "Створити SEO-чернетку для виділеного відео без змін на YouTube"
+            "Відкрити vidIQ і скопіювати посилання вибраного відео. "
+            "Публікація без редакторської перевірки заборонена."
         )
-        seo_selected_guided_btn.clicked.connect(self.local_seo_selected)
+        seo_selected_guided_btn.clicked.connect(self.open_vidiq_selected)
 
         prepare_guided_btn = QPushButton("Підготувати без квоти")
         prepare_guided_btn.setProperty("role", "success")
@@ -3350,18 +3351,19 @@ class MainWindow(QMainWindow):
 
         advanced_menu.addSeparator()
         self.advanced_local_seo_action = QAction(
-            "Локальний SEO вибраного",
+            "Відкрити vidIQ для вибраного відео",
             advanced_menu,
         )
         self.advanced_local_seo_action.triggered.connect(
-            self.local_seo_selected
+            self.open_vidiq_selected
         )
         advanced_menu.addAction(self.advanced_local_seo_action)
 
         self.advanced_batch_seo_action = QAction(
-            "Експериментальні SEO-чернетки x10",
+            "Застарілий локальний SEO (вимкнено)",
             advanced_menu,
         )
+        self.advanced_batch_seo_action.setEnabled(False)
         self.advanced_batch_seo_action.triggered.connect(
             lambda: self.local_seo_batch(limit=10)
         )
@@ -3387,6 +3389,44 @@ class MainWindow(QMainWindow):
             actions.addWidget(button)
         actions.addStretch()
         layout.addLayout(actions)
+
+        # Visible source-of-truth SEO flow, replacing the failed local
+        # generation route. vidIQ is opened as an external service: this
+        # application does not pretend to own the connected ChatGPT plugin.
+        seo_card = QFrame()
+        seo_card.setObjectName("VidIQSeoCard")
+        seo_card_layout = QVBoxLayout(seo_card)
+        seo_card_layout.setContentsMargins(18, 15, 18, 15)
+        seo_card_layout.setSpacing(8)
+        seo_heading = QLabel("SEO · vidIQ + редакторська перевірка")
+        seo_heading.setObjectName("VidIQSeoHeading")
+        seo_card_layout.addWidget(seo_heading)
+        seo_info = QLabel(
+            "1 · Аналіз запитів і заголовків у vidIQ   →   "
+            "2 · Перевірка за SRT   →   3 · Редагування пакета"
+        )
+        seo_info.setObjectName("VidIQSeoSteps")
+        seo_info.setWordWrap(True)
+        seo_card_layout.addWidget(seo_info)
+        seo_note = QLabel(
+            "Локальний AI SEO-генератор вимкнений. vidIQ відкривається "
+            "окремо, без автоматичної витрати кредитів чи публікації. "
+            "Зберігайте перевірені назви, опис і теги у редакторі пакета."
+        )
+        seo_note.setObjectName("VidIQSeoNote")
+        seo_note.setWordWrap(True)
+        seo_card_layout.addWidget(seo_note)
+        seo_buttons = QHBoxLayout()
+        open_vidiq_btn = QPushButton("Відкрити vidIQ")
+        open_vidiq_btn.setProperty("role", "primary")
+        open_vidiq_btn.clicked.connect(self.open_vidiq_selected)
+        edit_checked_btn = QPushButton("Редагувати SEO-пакет")
+        edit_checked_btn.clicked.connect(self.edit_content_package)
+        seo_buttons.addWidget(open_vidiq_btn)
+        seo_buttons.addWidget(edit_checked_btn)
+        seo_buttons.addStretch()
+        seo_card_layout.addLayout(seo_buttons)
+        layout.addWidget(seo_card)
 
         optimization_process = QFrame()
         self.optimization_process_frame = optimization_process
@@ -3621,9 +3661,8 @@ class MainWindow(QMainWindow):
             for index in range(self.settings_sections.count()):
                 if self.settings_sections.tabText(index).startswith("Сховища / API"):
                     self.settings_sections.setTabVisible(index, advanced)
-        # One-video local SEO is a primary user workflow, not a diagnostic.
-        # Keep it visible in normal mode; only the experimental batch and
-        # tool probes belong behind the advanced setting.
+        # vidIQ is the primary SEO workflow; the legacy generator is disabled.
+        # Keep the vidIQ shortcut visible and hide experimental legacy tools.
         if hasattr(self, "advanced_local_seo_action"):
             self.advanced_local_seo_action.setVisible(True)
         for name in (
@@ -3632,7 +3671,7 @@ class MainWindow(QMainWindow):
         ):
             action = getattr(self, name, None)
             if action is not None:
-                action.setVisible(advanced)
+                action.setVisible(advanced and name != "advanced_batch_seo_action")
         if hasattr(self, "optimization_filter"):
             for key in ("archive_top", "latin_titles", "deep_review"):
                 index = self.optimization_filter.findData(key)
@@ -4287,7 +4326,7 @@ class MainWindow(QMainWindow):
         elif status == "draft":
             self.edit_content_package()
         else:
-            self.local_seo_selected()
+            self.open_vidiq_selected()
 
     def _build_comments_tab(self) -> None:
         page = QWidget()
@@ -13036,6 +13075,13 @@ class MainWindow(QMainWindow):
         )
 
     def local_seo_batch(self, limit: int = 10) -> None:
+        # Fail closed for shortcuts left by older installers or saved UI.
+        QMessageBox.information(
+            self, APP_NAME,
+            "Експериментальну пакетну SEO-генерацію вимкнено. "
+            "Використовуйте vidIQ і редактор перевірених пакетів.",
+        )
+        return
         limit = max(1, min(int(limit), 20))
         rows = self.conn.execute(
             """SELECT v.video_id,v.audit_json,v.duration,v.views
@@ -13338,7 +13384,32 @@ class MainWindow(QMainWindow):
             ),
         )
 
+    def open_vidiq_selected(self) -> None:
+        """Open the real vidIQ app without pretending MCP is embedded here."""
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) > 1:
+            QMessageBox.information(
+                self, APP_NAME, "Виберіть лише одне відео для SEO."
+            )
+            return
+        if video_ids:
+            QApplication.clipboard().setText(
+                "https://www.youtube.com/watch?v=" + video_ids[0]
+            )
+        QDesktopServices.openUrl(QUrl("https://app.vidiq.com/"))
+        self.statusBar().showMessage(
+            "vidIQ відкрито. "
+            + ("Посилання відео скопійовано. " if video_ids else
+               "Виберіть відео, щоб скопіювати його посилання. ")
+            + "Перевірте SEO за SRT і збережіть у редакторі пакета.",
+            15000,
+        )
+
     def local_seo_selected(self) -> None:
+        """Compatibility entry point: legacy AI generator is disabled."""
+        self.open_vidiq_selected()
+        return
+
         video_ids = self._selected_optimization_video_ids()
         if len(video_ids) != 1:
             QMessageBox.information(
