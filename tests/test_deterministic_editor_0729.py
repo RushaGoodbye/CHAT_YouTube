@@ -44,7 +44,9 @@ def test_primary_seo_button_visible():
     assert 'QPushButton("Відкрити SEO у vidIQ")' in source
     assert "seo_selected_guided_btn.clicked.connect(self.open_vidiq_selected)" in source
     assert 'self.advanced_batch_seo_action.setEnabled(False)' in source
-    assert "            seo_selected_guided_btn,\n            prepare_guided_btn," in source
+    assert "            seo_selected_guided_btn,\n            prepare_guided_btn," not in source
+    assert 'seo_card.setObjectName("VidIQSeoCard")' in source
+    assert "self._update_vidiq_seo_status" in source
 
 def test_non_substantive_qa_label_does_not_block_real_topics():
     report = {"blocks": [{"verified": True, "topics": [
