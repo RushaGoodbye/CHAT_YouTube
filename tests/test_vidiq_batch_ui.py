@@ -45,10 +45,10 @@ def test_vidiq_batch_has_one_row_per_video_navigation_and_notes(tmp_path, monkey
     )
     try:
         assert dialog.table.rowCount()==10
-        assert dialog.table.item(0,1).text()==originals["VID00000000"]
-        assert all(r.isVisible() is False or r.text() for r in dialog.option_radios)
+        assert dialog.table.item(0,0).text()==originals["VID00000000"]
+        assert all(r.text() for r in dialog.option_radios)
         assert "vidIQ B 0" in best_suggestion(dialog.data["videos"][0])["title"]
-        assert "Найвища оцінка" in dialog.option_radios[1].text()
+        assert "Найвища оцінка" in dialog.option_score_labels[1].text()
         assert "Недоведене" in dialog.remarks_text.toPlainText()
         assert "Слова зі стріму" in dialog.preview.toPlainText()
         assert not dialog.review_btn.isEnabled()
@@ -58,7 +58,10 @@ def test_vidiq_batch_has_one_row_per_video_navigation_and_notes(tmp_path, monkey
         assert dialog.table.currentRow()==0
         dialog.skip_btn.click()
         assert dialog.table.currentRow()==1
+        assert load_inbox(inbox)["videos"][0]["stage"]=="SKIPPED"
         dialog.previous_btn.click()
+        assert dialog.reopen_btn.isEnabled()
+        dialog.reopen_btn.click()
         dialog.option_radios[2].setChecked(True)
         dialog.confirm.setChecked(True)
         assert dialog.review_btn.isEnabled()
@@ -69,7 +72,7 @@ def test_vidiq_batch_has_one_row_per_video_navigation_and_notes(tmp_path, monkey
         assert approved["stage"]=="CONTENT_REVIEWED"
         assert approved["selected_title"]=="vidIQ C 0"
         assert dialog.table.currentRow()==1
-        assert "Затверджено: 1" in dialog.summary.text()
+        assert "Перевірено: 1/10" in dialog.summary.text()
     finally:
         dialog.close()
         app.processEvents()
@@ -84,3 +87,35 @@ def test_score_is_not_automatic_editorial_approval(tmp_path):
     assert best_suggestion(video)["title"]=="High score"
     assert video["stage"]=="VIDIQ_SUGGESTED"
     assert "selected_title" not in video
+
+
+def test_reject_all_is_persistent_without_youtube_calls(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from rg_youtube_control.vidiq_review_ui import VidIQReviewDialog
+    from rg_youtube_control.vidiq_review import SOURCE, load_inbox
+    app=QApplication.instance() or QApplication([])
+    inbox=tmp_path/"vidiq.json"
+    inbox.write_text(json.dumps({
+        "source":SOURCE,"channel_id":"UC_test","publishing_enabled":False,
+        "videos":[{
+            "video_id":"abcdefghijk",
+            "title_suggestions":[
+                {"title":f"vidIQ verified source {i}","vidiq_score":80+i}
+                for i in range(3)
+            ]
+        }]
+    }),encoding="utf-8")
+    monkeypatch.setattr(QMessageBox,"question",
+        lambda *args,**kwargs: QMessageBox.StandardButton.Yes)
+    dialog=VidIQReviewDialog(inbox,tmp_path,channel_id="UC_test")
+    try:
+        assert dialog.reject_btn.isEnabled()
+        dialog.reject_btn.click()
+        assert load_inbox(inbox)["videos"][0]["stage"]=="REJECTED"
+        assert not dialog.review_btn.isEnabled()
+        assert dialog.reopen_btn.isEnabled()
+        assert "Відхилено: 1" in dialog.summary.text()
+        dialog.reopen_btn.click()
+        assert load_inbox(inbox)["videos"][0]["stage"]=="VIDIQ_SUGGESTED"
+    finally:
+        dialog.close()
