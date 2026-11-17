@@ -194,7 +194,7 @@ def test_guided_optimization_workspace_contract() -> None:
     end = source.index("\n    def _set_optimization_queue_filter", start)
     block = source[start:end]
     for marker in (
-        'QPushButton("Підготувати без квоти")',
+        'QPushButton("Пакет vidIQ · перегляд")',
         'QPushButton("Готово до YouTube")',
         'advanced_btn.setText("Додатково ▾")',
         'archive_campaign_summary.setVisible(False)',
@@ -274,8 +274,9 @@ def test_v060_guided_release_contract() -> None:
         'def review_draft_queue',
         'QPushButton("Прийняти")',
         'QPushButton("Відхилити")',
-        'generation="local-seo-0.6"',
-        'generation="safe-metadata-0.7.6"',
+        'def local_seo_selected',
+        'def prepare_zero_quota_batch',
+        'self.review_vidiq_proposals()',
         'def _package_quality_gate',
         '"SEO-опис не українською"',
         '"старий рекламний хвіст у назві"',
