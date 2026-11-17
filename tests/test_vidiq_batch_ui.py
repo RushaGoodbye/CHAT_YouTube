@@ -63,6 +63,8 @@ def test_vidiq_batch_has_one_row_per_video_navigation_and_notes(tmp_path, monkey
         assert dialog.reopen_btn.isEnabled()
         dialog.reopen_btn.click()
         dialog.option_radios[2].setChecked(True)
+        assert "ВИБРАНО" in dialog.option_score_labels[2].text()
+        assert "#0894f9" in dialog.option_cards[2].styleSheet()
         dialog.confirm.setChecked(True)
         assert dialog.review_btn.isEnabled()
         monkeypatch.setattr(QMessageBox,"question",
@@ -71,6 +73,10 @@ def test_vidiq_batch_has_one_row_per_video_navigation_and_notes(tmp_path, monkey
         approved=load_inbox(inbox)["videos"][0]
         assert approved["stage"]=="CONTENT_REVIEWED"
         assert approved["selected_title"]=="vidIQ C 0"
+        dialog.previous_btn.click()
+        assert "#188755" in dialog.option_cards[2].styleSheet()
+        assert "ЗАТВЕРДЖЕНО" in dialog.option_score_labels[2].text()
+        dialog.next_btn.click()
         assert dialog.table.currentRow()==1
         assert "Перевірено: 1/10" in dialog.summary.text()
     finally:
