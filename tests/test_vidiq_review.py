@@ -55,8 +55,16 @@ def test_persistent_manual_review_and_import_idempotence(tmp_path):
     assert first["newly_supplied"]==1
     with pytest.raises(ValueError):
         set_editorial_reviewed(inbox,"Oh6mcqc_YZo",confirmed_content=False)
-    assert set_editorial_reviewed(inbox,"Oh6mcqc_YZo",confirmed_content=True)
+    with pytest.raises(ValueError):
+        set_editorial_reviewed(inbox,"Oh6mcqc_YZo",confirmed_content=True)
+    with pytest.raises(ValueError):
+        set_editorial_reviewed(inbox,"Oh6mcqc_YZo",confirmed_content=True,
+                               selected_title="Not a vidIQ candidate")
+    selected="Друга назва від vidIQ"
+    assert set_editorial_reviewed(inbox,"Oh6mcqc_YZo",confirmed_content=True,
+                                  selected_title=selected)
     assert load_inbox(inbox)["videos"][0]["stage"]=="CONTENT_REVIEWED"
+    assert load_inbox(inbox)["videos"][0]["selected_title"]==selected
     again=import_proposals(source,inbox,**args)
     assert again["newly_supplied"]==0
     assert load_inbox(inbox)["videos"][0]["stage"]=="CONTENT_REVIEWED"
@@ -70,3 +78,18 @@ def test_reject_unknown_ids_without_file(tmp_path):
         import_proposals(src,dest,expected_channel_id=_sample()["channel_id"],
                          allowed_video_ids=set())
     assert not dest.exists()
+
+
+def test_import_never_loses_selected_title_and_approval(tmp_path):
+    src=tmp_path/"vidiq_source.json"
+    inbox=tmp_path/"vidiq_inbox.json"
+    src.write_text(json.dumps(_sample(),ensure_ascii=False),encoding="utf-8")
+    kwargs={"expected_channel_id":_sample()["channel_id"],
+            "allowed_video_ids":{"Oh6mcqc_YZo"}}
+    import_proposals(src,inbox,**kwargs)
+    set_editorial_reviewed(inbox,"Oh6mcqc_YZo",confirmed_content=True,
+                           selected_title="Третя назва від vidIQ")
+    import_proposals(src,inbox,**kwargs)
+    actual=load_inbox(inbox)["videos"][0]
+    assert actual["stage"]=="CONTENT_REVIEWED"
+    assert actual["selected_title"]=="Третя назва від vidIQ"
