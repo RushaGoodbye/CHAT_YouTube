@@ -1378,7 +1378,7 @@ class MainWindow(QMainWindow):
             ("Заплановані стріми", self.show_scheduled_center),
             ("Коментарі", lambda: self.tabs.setCurrentIndex(3)),
             ("Архів", self._open_archive_mode),
-            ("Підготувати без квоти", self.prepare_zero_quota_batch),
+            ("Пакет vidIQ · перегляд", self.prepare_zero_quota_batch),
             ("План квоти", self.show_quota_planner),
         ):
             action = QAction(text_value, other_menu)
@@ -1934,19 +1934,13 @@ class MainWindow(QMainWindow):
                             "StatusWarn" if safe_capacity <= 0 else "StatusGood"
                         )
                         self.next_action_title.setText(
-                            f"Підготувати наступні {local_count} відео локально"
+                            f"Знайдено {local_count} відео для перевірки у vidIQ"
                         )
                         self.next_action_explanation.setText(
-                            "YouTube Data API не витрачається. "
-                            + (
-                                "Квота зараз у резерві, тому це найкраща робота на сьогодні."
-                                if safe_capacity <= 0
-                                else "Пакети будуть готові до наступного кроку."
-                            )
+                            "SEO створює виключно vidIQ. "
+                            "Результати потрібно перевірити перед застосуванням."
                         )
-                        self.next_action_button.setText(
-                            f"Підготувати {local_count}"
-                        )
+                        self.next_action_button.setText("Перевірити vidIQ")
                     elif queued_comments:
                         self._guided_next_action = "comments"
                         self.next_action_state.setText("Є РОБОТА")
@@ -2018,8 +2012,8 @@ class MainWindow(QMainWindow):
                 "яку дозволяє поточна квота понад захищений резерв."
             ),
             "prepare_local": (
-                "Локальна підготовка не витрачає YouTube Data API, "
-                "тому це безпечна робота навіть коли квота майже закінчилась."
+                "SEO створює лише vidIQ. Програма відкриє чергу пропозицій "
+                "для перевірки без генерації й змін у YouTube."
             ),
             "comments": (
                 "Критичних задач по відео немає, тому наступна корисна черга - коментарі."
@@ -2238,7 +2232,12 @@ class MainWindow(QMainWindow):
 
 
     def prepare_zero_quota_batch(self) -> None:
-        """Prepare up to 10 metadata drafts without YouTube Data API calls."""
+        """Compatibility action: only vidIQ prepares SEO proposals."""
+        self.review_vidiq_proposals()
+        return
+
+        # Legacy implementation retained for rollback/reference only.
+        # This code is unreachable in the current vidIQ-only workflow.
         profile = self.current_profile
         metadata_issues = {
             "thin_description",
@@ -3377,7 +3376,7 @@ class MainWindow(QMainWindow):
         )
         seo_selected_guided_btn.clicked.connect(self.open_vidiq_selected)
 
-        prepare_guided_btn = QPushButton("Підготувати без квоти")
+        prepare_guided_btn = QPushButton("Пакет vidIQ · перегляд")
         prepare_guided_btn.setProperty("role", "success")
         prepare_guided_btn.clicked.connect(self.prepare_zero_quota_batch)
 
