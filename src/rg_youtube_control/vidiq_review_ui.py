@@ -5,12 +5,12 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QTextCursor, QFont
+from PySide6.QtGui import QDesktopServices, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QDialog, QFrame, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QPlainTextEdit,
     QRadioButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget, QInputDialog,
+    QVBoxLayout, QWidget,
 )
 
 from .vidiq_review import (
@@ -50,7 +50,7 @@ class VidIQReviewDialog(QDialog):
 
         self.setWindowTitle("vidIQ · пакетна перевірка · без публікації")
         self.resize(1400, 880)
-        self.setMinimumSize(980, 640)
+        self.setMinimumSize(1140, 700)
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -393,6 +393,37 @@ class VidIQReviewDialog(QDialog):
         self.copy_btn.setEnabled(choice)
         self.open_video_btn.setEnabled(exists)
         self.open_studio.setEnabled(exists)
+        if video:
+            top = best_suggestion(video)
+            chosen = self._chosen_title()
+            for i, card in enumerate(self.option_cards):
+                if i >= len(video["title_suggestions"]):
+                    continue
+                option = video["title_suggestions"][i]
+                is_approved = (
+                    stage == "CONTENT_REVIEWED"
+                    and option["title"] == video.get("selected_title")
+                )
+                is_current = bool(chosen and option["title"] == chosen)
+                is_recommended = option is top
+                if is_approved:
+                    stroke = "2px solid #188755"
+                elif is_current:
+                    stroke = "2px solid #0894f9"
+                elif is_recommended:
+                    stroke = "1px solid #e9a814"
+                else:
+                    stroke = "1px solid #505050"
+                card.setStyleSheet(
+                    "QFrame#vidiqOptionCard { border: " + stroke
+                    + "; border-radius: 5px; }"
+                )
+                self.option_score_labels[i].setText(
+                    f"vidIQ: {option['vidiq_score']}/100"
+                    + (" · Найвища оцінка" if is_recommended else "")
+                    + (" · ЗАТВЕРДЖЕНО" if is_approved else
+                       " · ВИБРАНО" if is_current else "")
+                )
 
     def _navigate(self, offset: int) -> None:
         next_index = self.table.currentRow() + offset
