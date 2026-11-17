@@ -46,3 +46,13 @@ GitHub Actions собирает PyInstaller onedir и затем установ�
 ## v0.1.3
 
 - Improved comment queue filters, editable safe auto-reply templates, comment ignore/restore actions, and daily quota counters.
+
+
+## v0.7.45 · vidIQ-first SEO
+
+- SEO in the Optimization tab now uses an explicit vidIQ handoff and a reviewed manual package editor.
+- Select one video and open vidIQ: the video's YouTube URL is copied to the clipboard.
+- Legacy local AI SEO generation and batch SEO actions are disabled in the GUI. Their code is retained for rollback, but not available for production use.
+- vidIQ operates in its own service. The desktop app does not use ChatGPT plugin credentials or silently spend vidIQ credits.
+- Titles, A/B options, description and tags must be checked against the real SRT before applying via the existing manual review flow.
+- YouTube publication remains gated by the existing approval and backup safeguards.
