@@ -6,6 +6,7 @@ The original technical metadata-only path is intentionally preserved.
 from __future__ import annotations
 import json
 from .dialogue_seo import ab_title_issues
+from .seo_origin import is_metadata_only, is_unverified_legacy
 
 
 def ready_for_youtube(
@@ -26,12 +27,17 @@ def ready_for_youtube(
     quality_state = (quality_state or "").strip()
     # Scheduled streams and safe description/tag-only optimization do not
     # replace the video title and therefore do not require A/B titles.
-    if scheduled or (
-        generation.startswith("safe-metadata")
-        and quality_state == "safe_metadata"
-    ):
+    if is_metadata_only(generation, quality_state):
         return not reasons, tuple(reasons)
-    if quality_state not in {"safe", "editor_approved"}:
+    # A legacy AI or unlabelled manual draft is not publishable merely
+    # because it was previously saved with status=ready and quality=safe.
+    # Scheduled videos are not exempt from source provenance.
+    if is_unverified_legacy(generation, quality_state):
+        reasons.append(
+            "Старий SEO-пакет без підтвердженого походження. "
+            "Повторно звірте з SRT у редакторі."
+        )
+    if quality_state != "editor_approved":
         reasons.append("SEO не підтверджено редактором; залишити чернеткою.")
     if isinstance(variants, str):
         try:
