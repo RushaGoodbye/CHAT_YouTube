@@ -140,7 +140,8 @@ def inspect_seo_draft(video: sqlite3.Row, transcript_content: str | None) -> dic
         }
         if title_words and len(title_words & transcript_words) / len(title_words) < 0.2:
             issues.append("title_low_lexical_support_in_srt")
-    return {"seo_checks": issues, "seo_result": "editorial_review_required",
+    return {"seo_checks": issues, "seo_issues": ", ".join(issues),
+            "seo_result": "editorial_review_required",
             "editorial_approval_automated": False}
 
 
@@ -284,7 +285,7 @@ def run_batch(*, db_path: str | Path, srt_dir: str | Path, profile: str = "main"
         _write_atomic(report_dir / (name + ".json"), json.dumps(result, ensure_ascii=False, indent=2))
         with (report_dir / (name + ".csv")).open("w", newline="", encoding="utf-8-sig") as handle:
             keys = ["video_id","title","profile","draft_status","origin","source",
-                    "srt_result","segments","characters","end_coverage","seo_result","error"]
+                    "srt_result","segments","characters","end_coverage","seo_result","seo_issues","error"]
             writer = csv.DictWriter(handle, fieldnames=keys, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(records)
