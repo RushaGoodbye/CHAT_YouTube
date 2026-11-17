@@ -298,9 +298,46 @@ def run_batch(*, db_path: str | Path, srt_dir: str | Path, profile: str = "main"
             if acquire and not blocked and index < len(pending):
                 time.sleep(max(0, min(pause, 10)))
 
+        # Read-only audit of existing full SRTs, including earlier batches.
+        # This never changes stored SEO drafts or YouTube metadata.
+        audited_existing = 0
+        scanned_ids = {record["video_id"] for record in records}
+        for video in candidates:
+            if audited_existing >= 200:
+                break
+            video_id = str(video["video_id"])
+            if video_id in scanned_ids or not VIDEO_ID.fullmatch(video_id):
+                continue
+            existing_path = target / (video_id + ".srt")
+            if not existing_path.is_file():
+                continue
+            try:
+                current_srt = existing_path.read_text(
+                    encoding="utf-8-sig", errors="replace"
+                )
+                inspected = inspect_srt(current_srt, _seconds(video["duration"]))
+                if not inspected["complete"]:
+                    continue
+                record = {
+                    "video_id": video_id, "profile": profile,
+                    "title": str(video["title"] or ""),
+                    "draft_status": video["draft_status"],
+                    "origin": video["generation"],
+                    "source": "existing_srt",
+                    "srt_result": "existing_complete",
+                    "error": "",
+                }
+                record.update(inspected)
+                record.update(inspect_seo_draft(video, current_srt))
+                records.append(record)
+                audited_existing += 1
+            except (OSError, ValueError, TypeError):
+                continue
+
         now = datetime.now(timezone.utc).isoformat()
         result = {"created_at": now, "profile": profile, "dry_run": not acquire,
                   "candidate_count": len(candidates), "pending_count": len(pending),
+                  "audited_existing_srt": audited_existing,
                   "status_counts": dict(Counter(r["srt_result"] for r in records)),
                   "editorial_approval_automated": False,
                   "youtube_metadata_modified": False,
