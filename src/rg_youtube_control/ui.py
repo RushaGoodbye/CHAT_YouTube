@@ -187,6 +187,7 @@ from .youtube_api import YouTubeClient
 from .style import APP_STYLESHEET, MUTED, SUCCESS, WARNING, YOUTUBE_RED
 from .windows_runtime import powershell_status
 from .seo_readiness import exact_video_id_search, ready_for_youtube
+from .seo_origin import source_label, is_unverified_legacy, is_metadata_only, VERIFIED_EDITOR_SOURCES
 from .public_comments import csv_safe_public_comment_cell, fetch_public_comment_sample
 from .updater import (
     UpdateInfo,
@@ -439,6 +440,24 @@ class ContentOptimizationDialog(QDialog):
             "Варіант B - конфлікт + контекст\n"
             "Варіант C - сильний хук | ЧАТ РУЛЕТКА"
         )
+        self.origin_heading = QLabel("Джерело SEO-пакета")
+        self.origin_heading.setObjectName("SeoOriginHeading")
+        self.origin_note = QLabel(source_label(self.generation))
+        self.origin_note.setObjectName("SeoOriginNote")
+        self.origin_note.setWordWrap(True)
+        self.origin_selector = QComboBox()
+        self.origin_selector.addItem("Старий / непідтверджений пакет", "")
+        self.origin_selector.addItem("vidIQ · перенесено вручну", "vidiq-reviewed-srt-v1")
+        self.origin_selector.addItem("Редактор · перевірено за SRT", "manual-reviewed-srt-v1")
+        origin_index = self.origin_selector.findData(self.generation)
+        if origin_index >= 0:
+            self.origin_selector.setCurrentIndex(origin_index)
+        self.srt_confirm = QCheckBox(
+            "Я особисто звірив(-ла) назву, опис, теги та A/B з повним SRT. "
+            "Непідтверджених фактів немає."
+        )
+        self.srt_confirm.setChecked(False)
+        self.srt_confirm.setWordWrap(True) if hasattr(self.srt_confirm, "setWordWrap") else None
         self.status_combo = QComboBox()
         self.status_combo.addItem("Чернетка", "draft")
         self.status_combo.addItem("Готово до застосування", "ready")
@@ -464,7 +483,19 @@ class ContentOptimizationDialog(QDialog):
         form.addRow("Теги:", self.tags_edit)
         form.addRow("A/B варіанти назви:", self.title_variants_edit)
         form.addRow("Статус:", self.status_combo)
+        form.addRow(self.origin_heading, self.origin_note)
+        form.addRow("Підтверджене походження:", self.origin_selector)
+        form.addRow("", self.srt_confirm)
         layout.addLayout(form)
+        if is_unverified_legacy(self.generation):
+            warning = QLabel(
+                "СТАРИЙ SEO-ПАКЕТ · Дані збережено, але публікація "
+                "заблокована до нового підтвердження за SRT. "
+                "Зміна джерела без фактичної перевірки заборонена."
+            )
+            warning.setObjectName("SeoOriginWarning")
+            warning.setWordWrap(True)
+            layout.insertWidget(0, warning)
 
         checks = QHBoxLayout()
         validate_btn = QPushButton(
@@ -578,6 +609,13 @@ class ContentOptimizationDialog(QDialog):
         else:
             QMessageBox.warning(self, "Перевірка пакета", message)
 
+    def selected_generation(self) -> str:
+        """Only a declared, SRT-checked source may replace old provenance."""
+        value = str(self.origin_selector.currentData() or "")
+        if value in VERIFIED_EDITOR_SOURCES and self.srt_confirm.isChecked():
+            return value
+        return self.generation
+
     def _accept_checked(self) -> None:
         if not self.title_edit.text().strip():
             QMessageBox.warning(self, APP_NAME, "Назва не може бути порожньою.")
@@ -611,9 +649,22 @@ class ContentOptimizationDialog(QDialog):
                     "\n".join(f"- {item}" for item in check.errors),
                 )
                 return
+            # Reusing an old title/description is not proof it was checked.
+            # Require a deliberate source selection AND a fresh SRT checkbox
+            # before the user can mark a full SEO package ready.
+            if not is_metadata_only(self.generation, "safe_metadata") and (
+                str(self.origin_selector.currentData() or "") not in VERIFIED_EDITOR_SOURCES
+                or not self.srt_confirm.isChecked()
+            ):
+                QMessageBox.warning(
+                    self, "Підтвердження SRT необхідне",
+                    "Оберіть фактичне джерело SEO, звірте повний SRT "
+                    "і підтвердьте перевірку. Інакше збережіть чернетку."
+                )
+                return
             approved, reasons = ready_for_youtube(
                 status="ready",
-                generation=self.generation,
+                generation=self.selected_generation(),
                 quality_state=(
                     "safe_metadata" if self.generation.startswith("safe-metadata")
                     else "editor_approved"
@@ -3133,6 +3184,7 @@ class MainWindow(QMainWindow):
         self.optimization_status_filter.addItem("Усі статуси", "all")
         self.optimization_status_filter.addItem("Потрібно підготувати", "needs")
         self.optimization_status_filter.addItem("Потрібно перевірити", "draft")
+        self.optimization_status_filter.addItem("Старі SEO-пакети", "legacy_seo")
         self.optimization_status_filter.addItem("Готово до YouTube", "ready")
         self.optimization_status_filter.addItem("Застосовано", "applied")
         self.optimization_status_filter.addItem("Без тегів", "no_tags")
@@ -3753,7 +3805,7 @@ class MainWindow(QMainWindow):
 
         video_id = video_ids[0]
         row = self.conn.execute(
-            """SELECT status, quality_state FROM optimization_drafts
+            """SELECT status, quality_state, generation FROM optimization_drafts
                WHERE video_id=?""", (video_id,),
         ).fetchone()
         status = str(row["status"] or "") if row else ""
@@ -3762,9 +3814,12 @@ class MainWindow(QMainWindow):
             "ready": "пакет збережено · перевірити перед YouTube",
             "applied": "зміни застосовано",
         }.get(status, "пакет ще не підготовлено")
+        origin = source_label(
+            str(row["generation"] or "") if row else "",
+            str(row["quality_state"] or "") if row else "",
+        ) if row else "SEO-пакет відсутній"
         self.vidiq_seo_status.setText(
-            f"Відео {video_id}  ·  {state}  ·  "
-            "vidIQ відкривається окремо"
+            f"Відео {video_id}  ·  {state}  ·  {origin}"
         )
         self.vidiq_edit_package_btn.setEnabled(True)
 
@@ -8931,6 +8986,14 @@ class MainWindow(QMainWindow):
                     )
                 )
                 or (status_filter == "draft" and draft_key == "draft")
+                or (
+                    status_filter == "legacy_seo"
+                    and bool(row["draft_status"])
+                    and is_unverified_legacy(
+                        str(row["draft_generation"] or ""),
+                        str(row["draft_quality_state"] or ""),
+                    )
+                )
                 or (status_filter == "ready" and draft_key == "ready")
                 or (status_filter == "applied" and draft_key == "applied")
                 or (status_filter == "no_tags" and "no_tags" in issues)
@@ -9008,8 +9071,10 @@ class MainWindow(QMainWindow):
             draft_generation = str(row["draft_generation"] or "legacy")
             draft_status = {
                 "draft": (
-                    "СТАРИЙ ПАКЕТ"
-                    if draft_generation == "legacy"
+                    "СТАРИЙ SEO"
+                    if is_unverified_legacy(
+                        draft_generation, str(row["draft_quality_state"] or "")
+                    )
                     else "ПЕРЕВІРИТИ"
                 ),
                 "ready": "ГОТОВО",
@@ -9975,11 +10040,7 @@ class MainWindow(QMainWindow):
                 tags,
                 status,
                 title_variants,
-                generation=(
-                    str(draft["generation"] or "manual")
-                    if draft is not None
-                    else "manual"
-                ),
+                generation=dialog.selected_generation(),
                 quality_state=(
                     "safe" if quality_state == "safe" and status != "draft"
                     else "review"
