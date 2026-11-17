@@ -93,3 +93,42 @@ def test_import_never_loses_selected_title_and_approval(tmp_path):
     actual=load_inbox(inbox)["videos"][0]
     assert actual["stage"]=="CONTENT_REVIEWED"
     assert actual["selected_title"]=="Третя назва від vidIQ"
+
+
+def test_rejected_and_skipped_survive_import(tmp_path):
+    from rg_youtube_control.vidiq_review import (
+        set_review_decision, reopen_for_review,
+    )
+    src=tmp_path/"source.json"
+    inbox=tmp_path/"inbox.json"
+    src.write_text(json.dumps(_sample(),ensure_ascii=False),encoding="utf-8")
+    args={"expected_channel_id":_sample()["channel_id"],
+          "allowed_video_ids":{"Oh6mcqc_YZo"}}
+    import_proposals(src,inbox,**args)
+    assert set_review_decision(inbox,"Oh6mcqc_YZo",
+                               decision="REJECTED",reason="Unsupported facts")
+    assert load_inbox(inbox)["videos"][0]["rejected_reason"]=="Unsupported facts"
+    import_proposals(src,inbox,**args)
+    assert load_inbox(inbox)["videos"][0]["stage"]=="REJECTED"
+    assert reopen_for_review(inbox,"Oh6mcqc_YZo")
+    assert load_inbox(inbox)["videos"][0]["stage"]=="VIDIQ_SUGGESTED"
+    assert set_review_decision(inbox,"Oh6mcqc_YZo",decision="SKIPPED")
+    import_proposals(src,inbox,**args)
+    assert load_inbox(inbox)["videos"][0]["stage"]=="SKIPPED"
+    assert reopen_for_review(inbox,"Oh6mcqc_YZo")
+    assert load_inbox(inbox)["videos"][0]["stage"]=="VIDIQ_SUGGESTED"
+
+
+def test_approved_video_cannot_be_rejected(tmp_path):
+    from rg_youtube_control.vidiq_review import set_review_decision
+    src=tmp_path/"source.json"
+    inbox=tmp_path/"inbox.json"
+    src.write_text(json.dumps(_sample(),ensure_ascii=False),encoding="utf-8")
+    import_proposals(src,inbox,expected_channel_id=_sample()["channel_id"],
+                     allowed_video_ids={"Oh6mcqc_YZo"})
+    assert set_editorial_reviewed(inbox,"Oh6mcqc_YZo",
+                                  confirmed_content=True,
+                                  selected_title="Перша назва від vidIQ")
+    with pytest.raises(ValueError):
+        set_review_decision(inbox,"Oh6mcqc_YZo",decision="REJECTED")
+    assert load_inbox(inbox)["videos"][0]["stage"]=="CONTENT_REVIEWED"
