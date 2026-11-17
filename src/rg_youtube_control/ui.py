@@ -13590,11 +13590,24 @@ class MainWindow(QMainWindow):
             )
             return
         try:
+            titles = {
+                str(row[0]): str(row[1] or "")
+                for row in self.conn.execute(
+                    "SELECT video_id,title FROM videos WHERE profile=?",
+                    (self.current_profile,),
+                )
+            }
+            remarks_path = Path(
+                "F:/RG_YOUTUBE_CONTROL_BATCH/vidiq_queue/"
+                "vidiq_pilot_10_editorial_cautions.json"
+            )
             dialog = VidIQReviewDialog(
                 path, self._nas_path(
                     "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH
                 ),
                 channel_id=PROFILE_TARGETS[self.current_profile], parent=self,
+                original_titles=titles,
+                remarks_path=remarks_path if self.current_profile == "main" else None,
             )
             dialog.exec()
             self.reload_optimization_queue()
