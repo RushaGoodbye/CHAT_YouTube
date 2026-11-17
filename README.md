@@ -56,3 +56,15 @@ GitHub Actions собирает PyInstaller onedir и затем установ�
 - vidIQ operates in its own service. The desktop app does not use ChatGPT plugin credentials or silently spend vidIQ credits.
 - Titles, A/B options, description and tags must be checked against the real SRT before applying via the existing manual review flow.
 - YouTube publication remains gated by the existing approval and backup safeguards.
+
+
+### Updating to 0.7.45
+
+Install the signed-by-checksum (SHA-256 verified) Inno Setup release into the existing
+RG YouTube Control location; the user-data directory is preserved. Back up
+`%LOCALAPPDATA%\\RGYouTubeControl` first. If a rollback is necessary,
+use the previous installer and restore the saved user-data archive.
+
+The vidIQ handoff is a browser link, not a direct API connection from the
+Windows program. vidIQ output must still be reviewed against the SRT in
+the package editor before any manual YouTube metadata action.
