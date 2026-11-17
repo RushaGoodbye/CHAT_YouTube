@@ -60,16 +60,12 @@ def test_hashtags_before_footer_do_not_break_truncation():
     assert result.description.count(PROJECT_LINKS_URL) == 1
 
 
-def test_0_quota_workflow_keeps_original_and_requires_review_before_publishing():
+def test_zero_quota_shortcut_is_vidiq_only_and_makes_no_seo_draft():
     source = Path("src/rg_youtube_control/ui.py").read_text(encoding="utf-8")
     start = source.index("    def prepare_zero_quota_batch")
     end = source.index("\n    def show_quota_planner", start)
     block = source[start:end]
-    assert "fit_description_to_youtube_limit" in block
-    assert 'quality_state="needs_review"' in block
-    assert 'status="draft"' in block
-    assert "source_description=str(meta.get(" in block
-    assert "safe_description_needs_content_package" in block
-    assert "У цьому відео обговорюємо тему, зазначену в назві" not in block
-    assert 'if str(row["draft_status"] or "") in {"ready", "applied"}:' in block
-    assert 'YouTube Data API: 0' in block
+    assert "self.review_vidiq_proposals()" in block
+    assert "save_optimization_draft" not in block
+    assert "fit_description_to_youtube_limit" not in block
+    assert "generate_seo_package_local" not in block
