@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
-STATUSES = ("AWAITING_VIDIQ", "VIDIQ_SUGGESTED", "CONTENT_REVIEWED", "APPLIED")
+STATUSES = ("AWAITING_VIDIQ", "VIDIQ_SUGGESTED", "CONTENT_REVIEWED", "APPLIED", "REJECTED", "SKIPPED")
 SOURCE = "connected vidIQ plugin vidiq_generate_titles"
 
 
@@ -92,6 +92,10 @@ def load_inbox(path: Path) -> dict:
         if stage not in STATUSES:
             raise ValueError("Unknown vidIQ review stage")
         video["stage"] = stage
+        if stage == "REJECTED" and stored.get("rejected_reason"):
+            video["rejected_reason"] = str(stored["rejected_reason"])[:500]
+        if stage in ("REJECTED", "SKIPPED") and stored.get("reviewed_at"):
+            video["reviewed_at"] = str(stored["reviewed_at"])
         selected = stored.get("selected_title")
         if selected is not None:
             if not isinstance(selected, str) or selected not in [
@@ -122,7 +126,7 @@ def import_proposals(source_path: Path, inbox_path: Path, *,
     merged = {v["video_id"]: v for v in existing["videos"]}
     for item in incoming["videos"]:
         prior = merged.get(item["video_id"])
-        if prior and prior.get("stage") in ("CONTENT_REVIEWED", "APPLIED"):
+        if prior and prior.get("stage") in ("CONTENT_REVIEWED", "APPLIED", "REJECTED", "SKIPPED"):
             # Fresh suggestions never silently undo an approval or
             # overwrite an already-reconciled editorial decision.
             continue
@@ -154,4 +158,41 @@ def set_editorial_reviewed(inbox_path: Path, video_id: str, *,
             video["editor_reviewed_at"] = datetime.now(timezone.utc).isoformat()
             save_json_atomic(inbox_path, data)
             return True
+    return False
+
+def set_review_decision(inbox_path: Path, video_id: str, *,
+                        decision: str, reason: str = "") -> bool:
+    """Save a refusal or skip. Never changes YouTube metadata."""
+    if decision not in ("REJECTED", "SKIPPED"):
+        raise ValueError("Only reject or skip is permitted")
+    data = load_inbox(inbox_path)
+    for video in data["videos"]:
+        if video["video_id"] != video_id:
+            continue
+        if video["stage"] in ("CONTENT_REVIEWED", "APPLIED"):
+            raise ValueError("Approved or applied video cannot be rejected")
+        video["stage"] = decision
+        video.pop("selected_title", None)
+        video.pop("editor_reviewed_at", None)
+        video["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+        if decision == "REJECTED":
+            video["rejected_reason"] = str(reason).strip()[:500] or "Жоден варіант vidIQ не підходить"
+        save_json_atomic(inbox_path, data)
+        return True
+    return False
+
+
+def reopen_for_review(inbox_path: Path, video_id: str) -> bool:
+    """Reopen a rejected/skipped video, with no new vidIQ quota usage."""
+    data = load_inbox(inbox_path)
+    for video in data["videos"]:
+        if video["video_id"] != video_id:
+            continue
+        if video["stage"] not in ("REJECTED", "SKIPPED"):
+            raise ValueError("Only skipped or rejected videos may be reopened")
+        video["stage"] = "VIDIQ_SUGGESTED"
+        video.pop("rejected_reason", None)
+        video.pop("reviewed_at", None)
+        save_json_atomic(inbox_path, data)
+        return True
     return False
