@@ -128,7 +128,9 @@ def test_draft_safe_metadata_and_scheduled_do_not_require_ab():
             variants=[], scheduled=scheduled,
         )
         assert not ready
-        assert issues == ("Пакет не має статусу готовності.",)
+        assert "Пакет не має статусу готовності." in issues
+        if generation == "scheduled-import":
+            assert any("Старий SEO-пакет" in reason for reason in issues)
 
 
 def test_editor_review_button_shows_ab_even_for_draft(monkeypatch):
