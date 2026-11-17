@@ -9,9 +9,9 @@ def _db(path: Path):
     db=sqlite3.connect(path)
     db.executescript("""
       CREATE TABLE videos(video_id TEXT,title TEXT,duration TEXT,views INTEGER,profile TEXT);
-      CREATE TABLE optimization_drafts(video_id TEXT,status TEXT,generation TEXT,quality_state TEXT,title_variants_json TEXT);
+      CREATE TABLE optimization_drafts(video_id TEXT,status TEXT,generation TEXT,quality_state TEXT,title_variants_json TEXT,new_title TEXT,description TEXT,tags_json TEXT);
       INSERT INTO videos VALUES ('abcdefghijk','Example','PT2M0S',100,'main');
-      INSERT INTO optimization_drafts VALUES ('abcdefghijk','ready','legacy','','[]');
+      INSERT INTO optimization_drafts VALUES ('abcdefghijk','ready','legacy','','[]','Example','', '[]');
     """)
     db.commit()
     db.close()
