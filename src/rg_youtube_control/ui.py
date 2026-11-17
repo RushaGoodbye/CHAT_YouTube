@@ -9085,6 +9085,17 @@ class MainWindow(QMainWindow):
                 )
             )
 
+        vidIQ_stages = {}
+        try:
+            from .vidiq_review import load_inbox
+            inbox = load_inbox(self._vidiq_inbox_path())
+            vidIQ_stages = {
+                record["video_id"]: record["stage"]
+                for record in inbox["videos"]
+            }
+        except (OSError, ValueError, KeyError):
+            pass
+
         self.optimization_table.setRowCount(len(prepared))
         for index, (_, publish_text, priority_text, row, score, issues) in enumerate(
             prepared
@@ -9111,6 +9122,13 @@ class MainWindow(QMainWindow):
                 "ready": "ГОТОВО",
                 "applied": "ЗАСТОСОВАНО",
             }.get(draft_key, "")
+            vidIQ_stage = vidIQ_stages.get(str(row["video_id"]))
+            if vidIQ_stage == "VIDIQ_SUGGESTED":
+                draft_status = "НА ЗАТВЕРДЖЕННІ · vidIQ"
+            elif vidIQ_stage == "CONTENT_REVIEWED":
+                draft_status = "ПЕРЕВІРЕНО · vidIQ"
+            elif vidIQ_stage == "APPLIED" and draft_key == "applied":
+                draft_status = "ЗАСТОСОВАНО · vidIQ"
             last_optimized, checkpoint_text = (
                 self._optimization_checkpoint_text(row["last_optimized_at"])
             )
