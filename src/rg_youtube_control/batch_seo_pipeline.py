@@ -184,6 +184,32 @@ def _candidates(conn: sqlite3.Connection, profile: str, limit: int) -> list[sqli
     ).fetchall()
 
 
+def recent_failed_ids(report_dir: Path, profile: str, now: datetime | None = None) -> set[str]:
+    """One-day retry cooldown so permanent failures cannot starve later videos."""
+    current = now or datetime.now(timezone.utc)
+    failed: set[str] = set()
+    if not report_dir.is_dir():
+        return failed
+    reports = sorted(report_dir.glob("rg_batch_" + profile + "_*.json"), reverse=True)[:50]
+    for path in reports:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if payload.get("dry_run"):
+                continue
+            stamp = datetime.fromisoformat(str(payload["created_at"]).replace("Z","+00:00"))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            age = (current - stamp).total_seconds()
+            if age < 0 or age >= 86400:
+                continue
+            for record in payload.get("records") or []:
+                if record.get("srt_result") in ("fetch_failed", "incomplete", "paused_after_rate_limit"):
+                    failed.add(str(record.get("video_id") or ""))
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+    return failed
+
+
 def run_batch(*, db_path: str | Path, srt_dir: str | Path, profile: str = "main",
               limit: int = 10, acquire: bool = False, pause: float = 1.5,
               progress: Callable[[str], None] | None = None) -> dict:
@@ -203,10 +229,11 @@ def run_batch(*, db_path: str | Path, srt_dir: str | Path, profile: str = "main"
     try:
         # Scan all candidates so populated SRTs do not block progress.
         candidates = _candidates(conn, profile, 100000)
+        failed_recently = recent_failed_ids(target / '_batch_reports', profile) if acquire else set()
         pending = []
         for video in candidates:
             video_id = str(video["video_id"])
-            if not VIDEO_ID.fullmatch(video_id):
+            if not VIDEO_ID.fullmatch(video_id) or video_id in failed_recently:
                 continue
             path = target / (video_id + ".srt")
             if path.exists() and path.stat().st_size:
