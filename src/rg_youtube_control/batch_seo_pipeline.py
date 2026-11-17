@@ -131,11 +131,11 @@ def inspect_seo_draft(video: sqlite3.Row, transcript_content: str | None) -> dic
         segments = parse_srt_transcript(transcript_content)
         transcript_words = {
             word for segment in segments
-            for word in re.findall(r"[\\w\\u0400-\\u052f]{5,}",
+            for word in re.findall(r"[\w\u0400-\u052f]{5,}",
                                    str(segment.get("text") or "").casefold())
         }
         title_words = {
-            word for word in re.findall(r"[\\w\\u0400-\\u052f]{5,}", title.casefold())
+            word for word in re.findall(r"[\w\u0400-\u052f]{5,}", title.casefold())
             if word not in {"рашагудбай", "россия", "росії", "раша", "гудбай"}
         }
         if title_words and len(title_words & transcript_words) / len(title_words) < 0.2:
