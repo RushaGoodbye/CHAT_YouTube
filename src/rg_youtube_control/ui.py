@@ -3484,7 +3484,17 @@ class MainWindow(QMainWindow):
         self.vidiq_edit_package_btn = QPushButton("Редагувати SEO-пакет")
         self.vidiq_edit_package_btn.setEnabled(False)
         self.vidiq_edit_package_btn.clicked.connect(self.edit_content_package)
+        self.vidiq_import_btn = QPushButton("Імпорт із vidIQ")
+        self.vidiq_import_btn.setToolTip(
+            "Імпорт лише реальних результатів vidIQ з JSON. "
+            "Без генерації, публікації й витрати кредитів."
+        )
+        self.vidiq_import_btn.clicked.connect(self.import_vidiq_proposals)
+        self.vidiq_review_btn = QPushButton("Пакет vidIQ · перегляд")
+        self.vidiq_review_btn.clicked.connect(self.review_vidiq_proposals)
         seo_buttons.addWidget(open_vidiq_btn)
+        seo_buttons.addWidget(self.vidiq_import_btn)
+        seo_buttons.addWidget(self.vidiq_review_btn)
         seo_buttons.addWidget(self.vidiq_edit_package_btn)
         seo_card_layout.addLayout(seo_buttons)
         layout.addWidget(seo_card)
@@ -3822,8 +3832,24 @@ class MainWindow(QMainWindow):
             str(row["generation"] or "") if row else "",
             str(row["quality_state"] or "") if row else "",
         ) if row else "SEO-пакет відсутній"
+        vidIQ_note = " · очікує vidIQ"
+        try:
+            from .vidiq_review import load_inbox
+            proposals = load_inbox(self._vidiq_inbox_path())
+            record = next(
+                (item for item in proposals["videos"]
+                 if item["video_id"] == video_id), None
+            )
+            if record:
+                vidIQ_note = {
+                    "VIDIQ_SUGGESTED": " · пропозиції vidIQ · на затвердженні",
+                    "CONTENT_REVIEWED": " · vidIQ · зміст перевірено вручну",
+                    "APPLIED": " · vidIQ · застосовано",
+                }.get(record["stage"], " · очікує vidIQ")
+        except (OSError, ValueError, KeyError):
+            pass
         self.vidiq_seo_status.setText(
-            f"Відео {video_id}  ·  {state}  ·  {origin}"
+            f"Відео {video_id}  ·  {state}  ·  {origin}" + vidIQ_note
         )
         self.vidiq_edit_package_btn.setEnabled(True)
 
@@ -13501,6 +13527,61 @@ class MainWindow(QMainWindow):
                 else "\n\nПовні причини записані у «Журнал»."
             ),
         )
+
+    def _vidiq_inbox_path(self) -> Path:
+        return self.data_dir / ("vidiq_inbox_" + self.current_profile + ".json")
+
+    def import_vidiq_proposals(self) -> None:
+        from .vidiq_review import import_proposals
+
+        default = Path("F:/RG_YOUTUBE_CONTROL_BATCH/vidiq_pilot_10.json")
+        initial = str(default if default.is_file() else self.data_dir)
+        source, _ = QFileDialog.getOpenFileName(
+            self, "Імпорт підтверджених результатів vidIQ",
+            initial, "vidIQ JSON (*.json)"
+        )
+        if not source:
+            return
+        try:
+            allowed = {
+                str(row[0]) for row in self.conn.execute(
+                    "SELECT video_id FROM videos WHERE profile=?",
+                    (self.current_profile,),
+                )
+            }
+            result = import_proposals(
+                Path(source), self._vidiq_inbox_path(),
+                expected_channel_id=PROFILE_TARGETS[self.current_profile],
+                allowed_video_ids=allowed,
+            )
+            self.reload_optimization_queue()
+            QMessageBox.information(
+                self, "vidIQ · імпортовано",
+                f"Пропозиції: {result['imported']} відео.\\n"
+                "Зміни в YouTube не внесені. Перевірте контент у пакеті."
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "vidIQ · помилка імпорту", str(exc))
+
+    def review_vidiq_proposals(self) -> None:
+        from .vidiq_review_ui import VidIQReviewDialog
+        path = self._vidiq_inbox_path()
+        if not path.is_file():
+            QMessageBox.information(
+                self, "vidIQ", "Спочатку імпортуйте JSON з результатами vidIQ."
+            )
+            return
+        try:
+            dialog = VidIQReviewDialog(
+                path, self._nas_path(
+                    "nas_transcripts_path", DEFAULT_NAS_TRANSCRIPTS_PATH
+                ),
+                channel_id=PROFILE_TARGETS[self.current_profile], parent=self,
+            )
+            dialog.exec()
+            self.reload_optimization_queue()
+        except Exception as exc:
+            QMessageBox.warning(self, "vidIQ · помилка перегляду", str(exc))
 
     def open_vidiq_selected(self) -> None:
         """Open the real vidIQ app without pretending MCP is embedded here."""
