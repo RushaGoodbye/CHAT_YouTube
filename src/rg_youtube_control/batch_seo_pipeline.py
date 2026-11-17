@@ -64,12 +64,15 @@ def inspect_srt(content: str, duration: int = 0) -> dict:
     rows = parse_srt_transcript(content)
     text_len = sum(len(str(r.get("text") or "")) for r in rows)
     last_end = max((float(r["start"]) + float(r["duration"]) for r in rows), default=0)
+    first_start = min((float(r["start"]) for r in rows), default=0)
     coverage = round(last_end / duration, 3) if duration > 0 else None
     issues = []
     if len(rows) < 8 or text_len < 200:
         issues.append("not_enough_transcript_text")
-    if duration >= 180 and last_end < duration * 0.70:
+    if duration >= 180 and last_end < duration * 0.90:
         issues.append("transcript_truncated")
+    if duration >= 180 and first_start > max(180, duration * 0.10):
+        issues.append("transcript_missing_beginning")
     return {"segments": len(rows), "characters": text_len, "last_end": round(last_end, 1),
             "duration": duration, "end_coverage": coverage, "complete": not issues,
             "issues": issues}
