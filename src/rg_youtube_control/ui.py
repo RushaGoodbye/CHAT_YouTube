@@ -3379,8 +3379,9 @@ class MainWindow(QMainWindow):
         advanced_menu.addAction(self.advanced_tools_probe_action)
         advanced_btn.setMenu(advanced_menu)
 
+        # The vidIQ action lives in the compact SEO workspace below.
+        # Do not show a second copy in the top action bar.
         for button in (
-            seo_selected_guided_btn,
             prepare_guided_btn,
             ready_guided_btn,
             scheduled_guided_btn,
@@ -3390,41 +3391,46 @@ class MainWindow(QMainWindow):
         actions.addStretch()
         layout.addLayout(actions)
 
-        # Visible source-of-truth SEO flow, replacing the failed local
-        # generation route. vidIQ is opened as an external service: this
-        # application does not pretend to own the connected ChatGPT plugin.
+        # Compact vidIQ workspace, directly tied to the table selection.
+        # Browser handoff is manual; no hidden model jobs or credit spending.
         seo_card = QFrame()
         seo_card.setObjectName("VidIQSeoCard")
-        seo_card_layout = QVBoxLayout(seo_card)
-        seo_card_layout.setContentsMargins(18, 15, 18, 15)
-        seo_card_layout.setSpacing(8)
-        seo_heading = QLabel("SEO · vidIQ + редакторська перевірка")
+        seo_card_layout = QHBoxLayout(seo_card)
+        seo_card_layout.setContentsMargins(16, 10, 16, 10)
+        seo_card_layout.setSpacing(16)
+
+        seo_content = QVBoxLayout()
+        seo_content.setSpacing(3)
+        seo_heading = QLabel("SEO · vidIQ")
         seo_heading.setObjectName("VidIQSeoHeading")
-        seo_card_layout.addWidget(seo_heading)
+        seo_content.addWidget(seo_heading)
+        self.vidiq_seo_status = QLabel("Виберіть відео · очікує на вибір")
+        self.vidiq_seo_status.setObjectName("VidIQSeoStatus")
+        self.vidiq_seo_status.setWordWrap(True)
+        seo_content.addWidget(self.vidiq_seo_status)
         seo_info = QLabel(
-            "1 · Аналіз запитів і заголовків у vidIQ   →   "
-            "2 · Перевірка за SRT   →   3 · Редагування пакета"
+            "vidIQ: ключові слова та назви  ·  SRT: перевірка фактів"
+            "  ·  Редактор: опис і теги"
         )
         seo_info.setObjectName("VidIQSeoSteps")
         seo_info.setWordWrap(True)
-        seo_card_layout.addWidget(seo_info)
-        seo_note = QLabel(
-            "Локальний AI SEO-генератор вимкнений. vidIQ відкривається "
-            "окремо, без автоматичної витрати кредитів чи публікації. "
-            "Зберігайте перевірені назви, опис і теги у редакторі пакета."
-        )
-        seo_note.setObjectName("VidIQSeoNote")
-        seo_note.setWordWrap(True)
-        seo_card_layout.addWidget(seo_note)
+        seo_content.addWidget(seo_info)
+        seo_card_layout.addLayout(seo_content, 1)
+
         seo_buttons = QHBoxLayout()
+        seo_buttons.setSpacing(8)
         open_vidiq_btn = QPushButton("Відкрити vidIQ")
         open_vidiq_btn.setProperty("role", "primary")
+        open_vidiq_btn.setToolTip(
+            "Відкриває vidIQ у браузері та копіює посилання "
+            "вибраного відео, якщо воно вибране"
+        )
         open_vidiq_btn.clicked.connect(self.open_vidiq_selected)
-        edit_checked_btn = QPushButton("Редагувати SEO-пакет")
-        edit_checked_btn.clicked.connect(self.edit_content_package)
+        self.vidiq_edit_package_btn = QPushButton("Редагувати SEO-пакет")
+        self.vidiq_edit_package_btn.setEnabled(False)
+        self.vidiq_edit_package_btn.clicked.connect(self.edit_content_package)
         seo_buttons.addWidget(open_vidiq_btn)
-        seo_buttons.addWidget(edit_checked_btn)
-        seo_buttons.addStretch()
+        seo_buttons.addWidget(self.vidiq_edit_package_btn)
         seo_card_layout.addLayout(seo_buttons)
         layout.addWidget(seo_card)
 
@@ -3517,6 +3523,9 @@ class MainWindow(QMainWindow):
         )
         self.optimization_table.itemSelectionChanged.connect(
             self._update_optimization_context_card
+        )
+        self.optimization_table.itemSelectionChanged.connect(
+            self._update_vidiq_seo_status
         )
 
         context = QFrame()
@@ -3729,6 +3738,35 @@ class MainWindow(QMainWindow):
         if item is None:
             return ""
         return str(item.data(Qt.ItemDataRole.UserRole) or item.text() or "")
+
+    def _update_vidiq_seo_status(self) -> None:
+        """Show grounded local state, never claim vidIQ processed the video."""
+        if not hasattr(self, "vidiq_seo_status"):
+            return
+        video_ids = self._selected_optimization_video_ids()
+        if len(video_ids) != 1:
+            self.vidiq_seo_status.setText(
+                "Виберіть одне відео · без автоматичної генерації"
+            )
+            self.vidiq_edit_package_btn.setEnabled(False)
+            return
+
+        video_id = video_ids[0]
+        row = self.conn.execute(
+            """SELECT status, quality_state FROM optimization_drafts
+               WHERE video_id=?""", (video_id,),
+        ).fetchone()
+        status = str(row["status"] or "") if row else ""
+        state = {
+            "draft": "чернетка · перевірити",
+            "ready": "пакет збережено · перевірити перед YouTube",
+            "applied": "зміни застосовано",
+        }.get(status, "пакет ще не підготовлено")
+        self.vidiq_seo_status.setText(
+            f"Відео {video_id}  ·  {state}  ·  "
+            "vidIQ відкривається окремо"
+        )
+        self.vidiq_edit_package_btn.setEnabled(True)
 
     def _update_optimization_context_card(self) -> None:
         if not hasattr(self, "optimization_context_title"):
