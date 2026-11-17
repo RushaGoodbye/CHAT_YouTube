@@ -23,7 +23,6 @@ from pathlib import Path
 
 from .batch_seo_pipeline import (
     VIDEO_ID, _candidates, _seconds, _write_atomic, inspect_srt, srt_text,
-    inspect_seo_draft,
 )
 
 
@@ -165,7 +164,7 @@ def run_asr(*, db_path: str | Path, srt_dir: str | Path, temp_dir: str | Path,
             item = {"video_id": vid, "title": str(row["title"] or ""),
                     "duration": _seconds(row["duration"]),
                     "status": "candidate", "source": "exact_video_id",
-                    "error": "", "seo_result": "editorial_review_required"}
+                    "error": ""}
             if not execute:
                 item["status"] = "dry_run"
                 records.append(item)
@@ -219,7 +218,6 @@ def run_asr(*, db_path: str | Path, srt_dir: str | Path, temp_dir: str | Path,
                         _write_atomic(metadata_path,json.dumps(
                             meta,ensure_ascii=False,indent=2))
                         item["status"] = "complete"
-                        item.update(inspect_seo_draft(row, text))
                 audio.unlink(missing_ok=True)
             except Exception as exc:
                 item["status"] = "failed"
@@ -232,7 +230,7 @@ def run_asr(*, db_path: str | Path, srt_dir: str | Path, temp_dir: str | Path,
                 "status_counts":dict(Counter(rec["status"] for rec in records)),
                 "youtube_data_api_units_used":0,
                 "youtube_metadata_modified":False,
-                "editorial_approval_automated":False, "records":records}
+                "seo_generation_enabled":False, "records":records}
         reports=target/"_batch_reports"
         reports.mkdir(parents=True,exist_ok=True)
         basename=f"rg_asr_{profile}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
@@ -240,7 +238,7 @@ def run_asr(*, db_path: str | Path, srt_dir: str | Path, temp_dir: str | Path,
             result,ensure_ascii=False,indent=2))
         with (reports/(basename+".csv")).open("w",encoding="utf-8-sig",newline="") as handle:
             keys=["video_id","title","status","source","duration","characters",
-                  "segments","end_coverage","language","seo_result","seo_issues","error"]
+                  "segments","end_coverage","language","error"]
             writer=csv.DictWriter(handle,fieldnames=keys,extrasaction="ignore")
             writer.writeheader()
             writer.writerows(records)
