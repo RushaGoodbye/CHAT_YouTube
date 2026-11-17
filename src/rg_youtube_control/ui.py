@@ -3536,7 +3536,7 @@ class MainWindow(QMainWindow):
         self.optimization_table = FrozenColumnsTable(
             0,
             12,
-            frozen_columns=(3, 4),
+            frozen_columns=(3,),
         )
         self.optimization_table.setHorizontalHeaderLabels(
             [
@@ -3565,8 +3565,8 @@ class MainWindow(QMainWindow):
         opt_header.setStretchLastSection(True)
         opt_header.setMinimumSectionSize(72)
         for column, width in {
-            0: 105, 1: 105, 2: 90, 3: 115, 4: 300, 5: 95,
-            6: 75, 7: 105, 8: 100, 9: 135, 10: 190, 11: 280,
+            0: 95, 1: 100, 2: 85, 3: 108, 4: 320, 5: 88,
+            6: 85, 7: 102, 8: 130, 9: 130, 10: 160, 11: 240,
         }.items():
             self.optimization_table.setColumnWidth(column, width)
         self.optimization_table.setHorizontalScrollMode(
@@ -3603,7 +3603,8 @@ class MainWindow(QMainWindow):
         text_box.addWidget(self.optimization_context_pipeline)
         text_box.addWidget(self.optimization_context_note)
         cx.addLayout(text_box, 1)
-        self.context_primary_btn = QPushButton("Продовжити")
+        self.context_primary_btn = QPushButton("Виберіть відео")
+        self.context_primary_btn.setEnabled(False)
         self.context_primary_btn.setProperty("role", "primary")
         self.context_primary_btn.clicked.connect(self._run_context_primary_action)
         self.context_discard_btn = QPushButton("Відхилити пакет")
@@ -3838,7 +3839,8 @@ class MainWindow(QMainWindow):
             self.optimization_context_note.setText(
                 "Виберіть один рядок - програма покаже потрібну наступну дію."
             )
-            self.context_primary_btn.setText("Продовжити")
+            self.context_primary_btn.setText("Виберіть відео")
+            self.context_primary_btn.setEnabled(False)
             if hasattr(self, "context_discard_btn"):
                 self.context_discard_btn.setVisible(False)
             return
@@ -9074,7 +9076,7 @@ class MainWindow(QMainWindow):
             draft_generation = str(row["draft_generation"] or "legacy")
             draft_status = {
                 "draft": (
-                    "СТАРИЙ SEO"
+                    "НЕ ПЕРЕВІРЕНО"
                     if is_unverified_legacy(
                         draft_generation, str(row["draft_quality_state"] or "")
                     )
