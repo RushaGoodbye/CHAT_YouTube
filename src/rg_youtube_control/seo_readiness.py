@@ -63,3 +63,28 @@ def exact_video_id_search(search_text: str) -> str:
     import re
     text = str(search_text or "").strip()
     return text if re.fullmatch(r"[A-Za-z0-9_-]{11}", text) else ""
+
+
+def persisted_quality_state(
+    *,
+    status: str,
+    original_generation: str,
+    original_quality_state: str,
+    selected_generation: str,
+    confirmed_srt: bool,
+    technical_quality: str,
+) -> str:
+    """Persist proof of review, never upgrade a draft by status alone.
+
+    The editor explicitly checks the complete SRT and chooses a verified
+    provenance before full SEO can be marked editor_approved.
+    """
+    from .seo_origin import VERIFIED_EDITOR_SOURCES
+
+    if status != "ready" or technical_quality != "safe":
+        return "review"
+    if is_metadata_only(original_generation, original_quality_state):
+        return "safe_metadata"
+    if selected_generation in VERIFIED_EDITOR_SOURCES and confirmed_srt:
+        return "editor_approved"
+    return "review"
