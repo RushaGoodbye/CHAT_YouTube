@@ -383,9 +383,11 @@ class ContentOptimizationDialog(QDialog):
         parent=None,
         *,
         generation: str = "",
+        quality_state: str = "",
     ) -> None:
         super().__init__(parent)
         self.generation = str(generation or "")
+        self.source_quality_state = str(quality_state or "")
         self.setWindowTitle("Пакет оптимізації контенту")
         self.resize(980, 760)
         layout = QVBoxLayout(self)
@@ -442,7 +444,7 @@ class ContentOptimizationDialog(QDialog):
         )
         self.origin_heading = QLabel("Джерело SEO-пакета")
         self.origin_heading.setObjectName("SeoOriginHeading")
-        self.origin_note = QLabel(source_label(self.generation))
+        self.origin_note = QLabel(source_label(self.generation, self.source_quality_state))
         self.origin_note.setObjectName("SeoOriginNote")
         self.origin_note.setWordWrap(True)
         self.origin_selector = QComboBox()
@@ -486,7 +488,7 @@ class ContentOptimizationDialog(QDialog):
         form.addRow("Підтверджене походження:", self.origin_selector)
         form.addRow("", self.srt_confirm)
         layout.addLayout(form)
-        if is_unverified_legacy(self.generation):
+        if is_unverified_legacy(self.generation, self.source_quality_state):
             warning = QLabel(
                 "СТАРИЙ SEO-ПАКЕТ · Дані збережено, але публікація "
                 "заблокована до нового підтвердження за SRT. "
@@ -583,7 +585,7 @@ class ContentOptimizationDialog(QDialog):
             status=_status,
             generation=self.selected_generation(),
             quality_state=(
-                "safe_metadata" if self.generation.startswith("safe-metadata")
+                "safe_metadata" if is_metadata_only(self.generation, self.source_quality_state)
                 else "editor_approved"
                 if _status == "ready" and self.srt_confirm.isChecked()
                 else "review"
@@ -653,7 +655,7 @@ class ContentOptimizationDialog(QDialog):
             # Reusing an old title/description is not proof it was checked.
             # Require a deliberate source selection AND a fresh SRT checkbox
             # before the user can mark a full SEO package ready.
-            if not is_metadata_only(self.generation, "safe_metadata") and (
+            if not is_metadata_only(self.generation, self.source_quality_state) and (
                 str(self.origin_selector.currentData() or "") not in VERIFIED_EDITOR_SOURCES
                 or not self.srt_confirm.isChecked()
             ):
@@ -667,7 +669,7 @@ class ContentOptimizationDialog(QDialog):
                 status="ready",
                 generation=self.selected_generation(),
                 quality_state=(
-                    "safe_metadata" if self.generation.startswith("safe-metadata")
+                    "safe_metadata" if is_metadata_only(self.generation, self.source_quality_state)
                     else "editor_approved"
                 ),
                 variants=title_variants,
@@ -10013,6 +10015,7 @@ class MainWindow(QMainWindow):
                 scheduled_publish_at,
                 self,
                 generation=(str(draft["generation"] or "") if draft is not None else "manual"),
+                quality_state=(str(draft["quality_state"] or "") if draft is not None else ""),
             )
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
