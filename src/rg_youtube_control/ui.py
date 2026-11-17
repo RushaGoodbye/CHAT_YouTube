@@ -457,7 +457,6 @@ class ContentOptimizationDialog(QDialog):
             "Непідтверджених фактів немає."
         )
         self.srt_confirm.setChecked(False)
-        self.srt_confirm.setWordWrap(True) if hasattr(self.srt_confirm, "setWordWrap") else None
         self.status_combo = QComboBox()
         self.status_combo.addItem("Чернетка", "draft")
         self.status_combo.addItem("Готово до застосування", "ready")
@@ -582,10 +581,12 @@ class ContentOptimizationDialog(QDialog):
         # publication. Passing technical checks does not mean publishable.
         editorial_ok, editorial_reasons = ready_for_youtube(
             status=_status,
-            generation=self.generation,
+            generation=self.selected_generation(),
             quality_state=(
                 "safe_metadata" if self.generation.startswith("safe-metadata")
-                else "editor_approved" if _status == "ready" else "review"
+                else "editor_approved"
+                if _status == "ready" and self.srt_confirm.isChecked()
+                else "review"
             ),
             variants=title_variants,
             scheduled=bool(self.scheduled_publish_at),
