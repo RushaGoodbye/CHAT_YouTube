@@ -1,0 +1,31 @@
+# Gatus requires at least one polled endpoint or suite in addition to push endpoints.
+# This checks only Gatus's own dashboard within its container.
+endpoints:
+  - name: dashboard-local
+    group: rg-nas
+    url: "http://127.0.0.1:8080/"
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
+
+# External endpoints receive only local status, never Telegram messages.
+# The 20m heartbeat detects a stopped 5m NAS observer task.
+storage:
+  type: sqlite
+  path: /data/gatus.sqlite
+external-endpoints:
+  - name: scheduler
+    group: rg-nas
+    token: "${GATUS_MONITOR_TOKEN}"
+    heartbeat:
+      interval: 20m
+  - name: control-center
+    group: rg-nas
+    token: "${GATUS_MONITOR_TOKEN}"
+    heartbeat:
+      interval: 20m
+  - name: telegram-components
+    group: rg-nas
+    token: "${GATUS_MONITOR_TOKEN}"
+    heartbeat:
+      interval: 20m

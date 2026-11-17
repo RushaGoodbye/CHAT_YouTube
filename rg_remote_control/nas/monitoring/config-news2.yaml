@@ -1,0 +1,23 @@
+# Gatus internal HTTP is used only for the local dashboard self-test.
+endpoints:
+  - name: dashboard-local
+    group: rg-nas
+    url: "http://127.0.0.1:8080/"
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
+storage:
+  type: sqlite
+  path: /data/gatus.sqlite
+# These checks are liveness ONLY, not Telegram publication confirmation.
+external-endpoints:
+  - name: news2-callback-state
+    group: rg-nas
+    token: "${GATUS_MONITOR_TOKEN}"
+    heartbeat:
+      interval: 20m
+  - name: news2-callback-log
+    group: rg-nas
+    token: "${GATUS_MONITOR_TOKEN}"
+    heartbeat:
+      interval: 20m
