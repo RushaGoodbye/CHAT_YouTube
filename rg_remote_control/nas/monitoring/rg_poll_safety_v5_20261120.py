@@ -18,7 +18,7 @@ def guard(s):
  if s.count('RG_POLL_EXPLICIT_REVIEW_REQUIRED_V3')!=1:raise ValueError('PREVIOUS_GUARD_MISSING')
  returns=[n for n in ast.walk(v) if isinstance(n,ast.Return) and isinstance(n.value,ast.Constant) and n.value.value is True]
  if len(returns)!=1 or v.body[-1] is not returns[0]:raise ValueError('VALIDATOR_RETURN_CHANGED')
- cl=[n for n in ast.walk(cb) if isinstance(n,ast.Assign) and "v['status']='PUBLIC_SEND_UNCERTAIN';state['current']='PUBLIC_SEND_UNCERTAIN'" in (ast.get_source_segment(s,n) or '')]
+ cl=[n for n in ast.walk(cb) if isinstance(n,ast.Assign) and "v['status']='PUBLIC_SEND_UNCERTAIN';state['current']='PUBLIC_SEND_UNCERTAIN'" in s.splitlines()[n.lineno-1]]
  photos=[n for n in ast.walk(cb) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='send_photo']
  polls=[n for n in ast.walk(cb) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='telegram' and n.args and isinstance(n.args[0],ast.Constant) and n.args[0].value=='sendPoll']
  if len(cl)!=1 or len(photos)!=1 or len(polls)!=1:raise ValueError('PUBLIC_CALL_COUNT_CHANGED')
