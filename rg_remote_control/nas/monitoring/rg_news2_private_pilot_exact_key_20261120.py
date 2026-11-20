@@ -22,9 +22,9 @@ def read_key_path():
  tree=ast.parse(POLL.read_text(encoding='utf8'))
  env={}
  def safeexpr(node):
-  if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and
-     isinstance(node.func.value,ast.Name) and node.func.value.id=='pathlib' and node.func.attr=='Path' and
-     len(node.args)==1 and not node.keywords and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str):
+  if (isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and
+      isinstance(node.func.value,ast.Name) and node.func.value.id=='pathlib' and node.func.attr=='Path' and
+      len(node.args)==1 and not node.keywords and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str)):
    return pathlib.Path(node.args[0].value)
   if isinstance(node,ast.BinOp) and isinstance(node.op,ast.Div):
    left=safeexpr(node.left)
