@@ -38,8 +38,8 @@ def clean_value(value,depth=0):
   return {k:clean_value(v,depth+1) for k,v in value.items()
           if not SECRETS.search(k) and k.lower() not in
           ('message','text','caption','photo','video','chat','user','username','first_name','last_name','url','raw_update','update','token')
-          and (re.search(r'(?i)(status|callback|success|last|age|heartbeat|poll|offset|error|warning|alert|stale|owner|handoff|checked|update)',k)
-               or depth>0)}
+          and not re.search(r'(?i)(user|moderator|sender|recipient|chat|phone|email|message|file_id|update_id|private_id)',k)
+          and re.search(r'(?i)(status|callback|success|last|age|heartbeat|poll|offset|error|warning|alert|stale|owner|handoff|checked|update)',k)}
  return type(value).__name__
 def sources():
  out=[]
