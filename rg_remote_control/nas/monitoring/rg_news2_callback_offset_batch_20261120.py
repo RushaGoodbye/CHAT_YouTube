@@ -105,13 +105,49 @@ def receipts():
     result.append({'file':p.name,'age_seconds':round(NOW-p.stat().st_mtime),
                    'status':str(data.get('status',''))[:70]})
  return result[:20]
+def callback_contract():
+ import ast
+ p=O/'rg_news2_p31_guarded_callback_once.py'
+ if not p.is_file() or p.is_symlink():raise RuntimeError('CALLBACK_SOURCE_MISSING')
+ t=ast.parse(p.read_text('utf8'))
+ strings=[n.value for n in ast.walk(t) if isinstance(n,ast.Constant) and isinstance(n.value,str)]
+ calls=[n.func.id if isinstance(n.func,ast.Name) else n.func.attr
+   for n in ast.walk(t) if isinstance(n,ast.Call) and isinstance(n.func,(ast.Name,ast.Attribute))]
+ return {'source_parse':'PASS','getUpdates_present':any(x=='getUpdates' for x in strings),
+  'answerCallbackQuery_present':any(x=='answerCallbackQuery' for x in strings),
+  'offset_read_used':'getoff' in calls,'offset_write_used':'putoff' in calls,
+  'actual_callback_ack_confirmed':False}
+def health_snapshot():
+ v=states()
+ def named(n):
+  for x in v:
+   if x.get('file')==n:return x
+  return {}
+ tick=named('news_rg_callback_scheduled_state_v1.json')
+ stable=named('news_rg_stable5_operational_status_v1.json')
+ health=named('news_rg_health_control_state_v1.json')
+ healthy=(tick.get('status')=='PASS' and tick.get('second_poller') is False and
+   isinstance(tick.get('offset_after'),int) and tick['offset_after']>=138130348 and
+   tick.get('age_seconds',9999)<240 and stable.get('status')=='PASS' and
+   not stable.get('alerts') and health.get('status')=='HEALTHY' and
+   not health.get('observed_alerts'))
+ return {'healthy':healthy,'offset_after':tick.get('offset_after'),
+  'scheduled_age_seconds':tick.get('age_seconds'),
+  'stable5_status':stable.get('status'),'health_status':health.get('status')}
+
 def main():
  p=O/'news_rg_poll_moderation_v1.py'
  pinned=present(p) and hashlib.sha256(p.read_bytes()).hexdigest()==EXPECTED
- report={'status':'RG_NEWS2_CALLBACK_OFFSET_BATCH_READONLY',
+ contract=callback_contract()
+ live=health_snapshot()
+ safe=(pinned and live['healthy'] and contract['source_parse']=='PASS' and
+  contract['answerCallbackQuery_present'] and contract['offset_read_used'] and contract['offset_write_used'])
+ report={'status':'RG_NEWS2_CALLBACK_HEALTHY_NO_RESTART_NEEDED' if safe else 'RG_NEWS2_CALLBACK_TARGETED_REPAIR_REQUIRED',
   'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
   'v6_integrity_pass':pinned,'test_private_message_id':KNOWN_MSG,
   'callback_handoffs':collect_updates(),'callback_status':states(),
+  'current_health':live,'callback_source_contract':contract,
+  'auto_repair_performed':False,'public_poll_reenabled':False,
   'direct_test_receipts':receipts(),
   'interpretation':'Archive presence is evidence of receipt, not proof of callback acknowledgment.',
   'telegram_calls':0,'getUpdates_calls':0,'publications':0,
