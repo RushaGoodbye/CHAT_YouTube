@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NEWS2 single-shot private QA via the EXISTING poll module KEY file.
+"""NEWS2 single-shot private QA via EXISTING news_rg_multipart transport.
 No live module imports; no getUpdates; no public sendPoll/sendPhoto; no new pollers.
 Output never includes bot token, private chat ID or exact secret path.
 """
@@ -17,32 +17,20 @@ BOT='russiagoodbyenewsbot'
 def demand(ok,reason):
  if not ok:raise RuntimeError(reason)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
-def read_key_path():
- # Resolve ONLY static pathlib.Path literal and known path joins, never run source code.
- tree=ast.parse(POLL.read_text(encoding='utf8'))
- env={}
- def safeexpr(node):
-  if (isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and
-      isinstance(node.func.value,ast.Name) and node.func.value.id=='pathlib' and node.func.attr=='Path' and
-      len(node.args)==1 and not node.keywords and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str)):
-   return pathlib.Path(node.args[0].value)
-  if isinstance(node,ast.BinOp) and isinstance(node.op,ast.Div):
-   left=safeexpr(node.left)
-   if isinstance(node.right,ast.Constant) and isinstance(node.right.value,str):
-    return left/node.right.value
-  if isinstance(node,ast.Name) and node.id in env:return env[node.id]
-  raise RuntimeError('TOKEN_KEY_DYNAMIC_SOURCE_NEEDS_REVIEW')
- for node in tree.body:
-  if isinstance(node,ast.Assign) and len(node.targets)==1 and isinstance(node.targets[0],ast.Name) and node.targets[0].id in ('O','KEY'):
-   env[node.targets[0].id]=safeexpr(node.value)
- key=env.get('KEY')
- demand(isinstance(key,pathlib.Path),'POLL_KEY_NOT_STATIC')
- # Source is pinned to EXPECT_SHA. Its static KEY can reside in the shared NAS
- # credentials directory; do not require it to be inside NEWS2.
- demand(key.is_absolute() and '..' not in key.parts,'POLL_KEY_NOT_SAFE_ABSOLUTE_PATH')
- demand(key.is_file() and not key.is_symlink(),'POLL_TOKEN_FILE_MISSING')
- demand(key.stat().st_size<4096,'POLL_TOKEN_FILE_SIZE_UNSAFE')
- return key
+def verified_transport():
+ # The pinned poll module uses news_rg_multipart.token()/identity(), NOT
+ # its Gemini API KEY. Import the existing shared Telegram transport.
+ import importlib
+ sys.path.insert(0,str(OP))
+ transport=importlib.import_module('news_rg_multipart')
+ demand(callable(getattr(transport,'token',None)) and
+        callable(getattr(transport,'identity',None)),
+        'EXISTING_TELEGRAM_TRANSPORT_UNAVAILABLE')
+ token=transport.token()
+ identity=transport.identity()
+ demand(isinstance(token,str) and bool(TOKEN_RE.fullmatch(token)),
+        'EXISTING_TELEGRAM_TRANSPORT_BAD_TOKEN')
+ return token,identity
 def api(token,method,data):
  request=urllib.request.Request('https://api.telegram.org/bot'+token+'/'+method,
   data=json.dumps(data,ensure_ascii=False).encode('utf8'),
@@ -84,9 +72,8 @@ def send():
  try:
   previous=receipt_status()
   if previous:return previous
-  key_path=read_key_path()
-  token=key_path.read_text(encoding='utf8').strip()
-  demand(bool(TOKEN_RE.fullmatch(token)),'POLL_KEY_FILE_NOT_RAW_BOT_TOKEN')
+  token,transport_identity=verified_transport()
+  demand(str(transport_identity)==str(chat_id),'TELEGRAM_TRANSPORT_MODERATOR_ID_MISMATCH')
   me=api(token,'getMe',{})
   demand(isinstance(me,dict) and str(me.get('username','')).lower()==BOT,
    'POLL_TOKEN_NOT_RUSSIA_GOODBYE_NEWS_BOT')
