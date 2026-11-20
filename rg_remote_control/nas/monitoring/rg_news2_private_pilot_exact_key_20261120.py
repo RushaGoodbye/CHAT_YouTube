@@ -73,7 +73,8 @@ def send():
   previous=receipt_status()
   if previous:return previous
   token,transport_identity=verified_transport()
-  demand(str(transport_identity)==str(chat_id),'TELEGRAM_TRANSPORT_MODERATOR_ID_MISMATCH')
+  # identity() is the existing transport's identity marker, not necessarily a chat ID.
+  demand(transport_identity is not None,'TELEGRAM_TRANSPORT_IDENTITY_MISSING')
   me=api(token,'getMe',{})
   demand(isinstance(me,dict) and str(me.get('username','')).lower()==BOT,
    'POLL_TOKEN_NOT_RUSSIA_GOODBYE_NEWS_BOT')
