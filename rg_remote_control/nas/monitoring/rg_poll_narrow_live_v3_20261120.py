@@ -21,23 +21,26 @@ def is_poll(n):
   and n.func.id=='telegram' and n.args and isinstance(n.args[0],ast.Constant)
   and n.args[0].value=='sendPoll')
 def repair(source):
- if source.count(OLD)!=1 or source.count(OLD_ERROR)!=1 or NEW in source:
-  raise ValueError('OLD_GUARD_MISSING_OR_CHANGED')
+ if NEW in source:raise ValueError('NARROW_GUARD_ALREADY_PRESENT')
  tree=ast.parse(source)
  funcs=[n for n in ast.walk(tree) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name=='callback']
  if len(funcs)!=1:raise ValueError('CALLBACK_COUNT_'+str(len(funcs)))
  fn=funcs[0]
- if not fn.body or not is_raise(fn.body[0],OLD_ERROR):
-  raise ValueError('OLD_GUARD_NOT_FIRST_STATEMENT')
- entry=fn.body[0]
+ broad=OLD in source or OLD_ERROR in source
+ if broad and (source.count(OLD)!=1 or source.count(OLD_ERROR)!=1):
+  raise ValueError('EMERGENCY_MARKER_NOT_UNIQUE')
  lines=source.splitlines(keepends=True)
- i=entry.lineno-1
- if i<1 or entry.end_lineno!=entry.lineno:raise ValueError('OLD_GUARD_LAYOUT')
- pad=lines[i][:len(lines[i])-len(lines[i].lstrip(' \t'))]
- if (not pad or lines[i-1].strip()!='# '+OLD
-     or lines[i-1][:len(lines[i-1])-len(lines[i-1].lstrip(' \t'))]!=pad
-     or lines[i].strip()!="raise RuntimeError('"+OLD_ERROR+"')"):
-  raise ValueError('OLD_GUARD_NOT_EXACT')
+ if broad:
+  if not fn.body or not is_raise(fn.body[0],OLD_ERROR):
+   raise ValueError('OLD_GUARD_NOT_FIRST_STATEMENT')
+  entry=fn.body[0]
+  i=entry.lineno-1
+  if i<1 or entry.end_lineno!=entry.lineno:raise ValueError('OLD_GUARD_LAYOUT')
+  pad=lines[i][:len(lines[i])-len(lines[i].lstrip(' \t'))]
+  if (not pad or lines[i-1].strip()!='# '+OLD
+      or lines[i-1][:len(lines[i-1])-len(lines[i-1].lstrip(' \t'))]!=pad
+      or lines[i].strip()!="raise RuntimeError('"+OLD_ERROR+"')"):
+   raise ValueError('OLD_GUARD_NOT_EXACT')
  calls=[n for n in ast.walk(tree) if is_poll(n)]
  if len(calls)!=1:raise ValueError('SENDPOLL_COUNT_'+str(len(calls)))
  call=calls[0]
@@ -46,7 +49,7 @@ def repair(source):
             and n.lineno==call.lineno and getattr(n,'value',None) is call]
  if len(statement)!=1:raise ValueError('SENDPOLL_STATEMENT_UNKNOWN')
  target=statement[0]
- if target.lineno<=entry.lineno:raise ValueError('SENDPOLL_BEFORE_GUARD')
+ if broad and target.lineno<=entry.lineno:raise ValueError('SENDPOLL_BEFORE_GUARD')
  original=lines[target.lineno-1]
  indent=original[:len(original)-len(original.lstrip(' \t'))]
  if not indent or not original.lstrip().startswith(('res=','res =','telegram(')):
@@ -54,7 +57,7 @@ def repair(source):
  nl='\r\n' if original.endswith('\r\n') else '\n'
  guard=indent+'# '+NEW+nl+indent+"raise RuntimeError('"+NEW_ERROR+"')"+nl
  lines.insert(target.lineno-1,guard)
- del lines[i-1:i+1]
+ if broad:del lines[i-1:i+1]
  patched=''.join(lines)
  verified=ast.parse(patched)
  if patched.count(NEW)!=1 or OLD in patched or OLD_ERROR in patched:
@@ -111,6 +114,15 @@ def selftest():
   try:ns['callback'](True,lambda *a:called.append(a))
   except RuntimeError as e:assert str(e)==NEW_ERROR
   else:raise AssertionError('SENDPOLL_NOT_BLOCKED')
+  assert not called
+  # Also protect a live module whose prior emergency patch was reverted.
+  clean=src.replace("    # RG_POLL_EMERGENCY_NO_PUBLICATION_20261120\n","").replace("    raise RuntimeError('POLL_HUMAN_APPROVAL_REQUIRED_NO_AUTO_PUBLICATION')\n","")
+  cleanfixed,_=repair(clean)
+  safe={}
+  exec(cleanfixed,safe)
+  try:safe['callback'](True,lambda *a:called.append(a))
+  except RuntimeError as e:assert str(e)==NEW_ERROR
+  else:raise AssertionError('RESTORED_SENDPOLL_NOT_BLOCKED')
   assert not called
  print(json.dumps({'status':'RG_POLL_NARROW_V3_SELFTEST_PASS','telegram_calls':0,'publications':0}))
 if __name__=='__main__':
