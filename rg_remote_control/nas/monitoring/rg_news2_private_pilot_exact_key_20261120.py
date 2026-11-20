@@ -37,8 +37,9 @@ def read_key_path():
    env[node.targets[0].id]=safeexpr(node.value)
  key=env.get('KEY')
  demand(isinstance(key,pathlib.Path),'POLL_KEY_NOT_STATIC')
- demand(str(key).startswith('/volume1/docker/RG_TELEGRAM_NEWS_2/') or str(key).startswith('/volume1/docker/RG_ALERTS_DEPLOY/'),
-       'POLL_KEY_OUTSIDE_NEWS2_CONFIG')
+ # Source is pinned to EXPECT_SHA. Its static KEY can reside in the shared NAS
+ # credentials directory; do not require it to be inside NEWS2.
+ demand(key.is_absolute() and '..' not in key.parts,'POLL_KEY_NOT_SAFE_ABSOLUTE_PATH')
  demand(key.is_file() and not key.is_symlink(),'POLL_TOKEN_FILE_MISSING')
  demand(key.stat().st_size<4096,'POLL_TOKEN_FILE_SIZE_UNSAFE')
  return key
