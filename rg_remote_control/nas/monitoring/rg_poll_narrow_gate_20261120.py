@@ -49,21 +49,10 @@ def persist(path,payload,mode):
  finally:
   if os.path.exists(tmp):os.unlink(tmp)
 def report_context(src,owner,c):
- # Expose no code literals and no values of secrets. Only structural metadata.
- tree=ast.parse(src)
- callback=[n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==owner.name]
- if not callback:return {}
- x=callback[0]
- callback_literals=[]
- for n in ast.walk(x):
-  if isinstance(n,ast.Constant) and isinstance(n.value,str):
-   value=n.value
-   if re.fullmatch(r'[A-Za-z0-9:_-]{2,55}',value) and not re.search(r'bot|token|secret|auth|pass|key',value,re.I):
-    callback_literals.append(value)
+ # Structural metadata only: never print code strings or possible credentials.
  return {'callback_function':owner.name,
          'callback_arguments':[n.arg for n in owner.args.args],
-         'poll_call_line_original':c.lineno,
-         'callback_string_tokens':sorted(set(callback_literals))[:32]}
+         'poll_call_line_original':c.lineno}
 def main():
  if os.geteuid()!=0:raise ValueError('ROOT_REQUIRED')
  if LIVE.is_symlink() or not LIVE.is_file() or BACK.is_symlink() or not BACK.is_dir():
